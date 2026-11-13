@@ -1,22 +1,12 @@
 name: Validate github/github docs URLs
 
-# **What it does**: Checks the URLs in docs-urls.json in github/github
-# **Why we have it**: To ensure the values in docs-urls.json are perfect.
-# **Who does it impact**: Docs content.
+# Checks github/github docs-urls.json entries against docs-internal content.
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '20 16 * * *' # Run every day at 16:20 UTC / 8:20 PST
-  pull_request:
-    paths:
-      - 'content/**'
-      # In case a relevant dependency changes
-      - 'package*.json'
-      # The scripts
-      - 'src/links/scripts/validate-github-github-docs-urls/**'
-      # The workflow
-      - .github/workflows/validate-github-github-docs-urls.yml
+    - cron: '20 16 * * 1' # Run every Monday at 16:20 UTC / 8:20 PST
+  # Pull request triggers need https://gh.io/AAsyyao setup before they can run safely.
 
 permissions:
   contents: read
@@ -30,40 +20,36 @@ jobs:
   validate_github_github_docs_urls:
     name: Validate github/github docs URLs
     if: github.repository == 'github/docs-internal'
-    runs-on: ubuntu-20.04-xl
+    runs-on: ubuntu-latest
     steps:
       - name: Check out repo's default branch
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-        with:
-          # Picking this number is a "best guess". If we make it too large,
-          # the checkout will take potentially unnecessariily long.
-          # This reduces the chance that tj-actions/changed-files has to
-          # fetch deeper history. But if it needs to, it will.
-          fetch-depth: 10
-
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: ./.github/actions/node-npm-setup
 
-      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          token: ${{ secrets.DOCS_BOT_PAT_READPUBLICKEY }}
+          token: ${{ secrets.DOCS_BOT_PAT_BASE }}
           repository: github/github
           ref: master
           path: github
 
       - name: Run validation
         run: |
-          # This will generate a .json file which we can use to
-          # do other things in other steps.
+          # checks.json feeds the later update and comment steps.
           npm run validate-github-github-docs-urls -- validate \
             --output checks.json \
+            --ignore-not-found \
             github/config/docs-urls.json
 
       - name: Update config/docs-urls.json in github/github (possibly)
         if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
         env:
-          GITHUB_TOKEN: ${{ secrets.DOCS_BOT_PAT_WRITEORG_PROJECT }}
+          GITHUB_TOKEN: ${{ secrets.DOCS_BOT_PAT_BASE }}
         run: |
           npm run validate-github-github-docs-urls -- generate-new-json checks.json github/config/docs-urls.json
+
+          git config --global user.name "docs-bot"
+          git config --global user.email "77750099+docs-bot@users.noreply.github.com"
 
           cd github
           git status
@@ -81,56 +67,48 @@ jobs:
           git commit -a -m "Update Docs URLs from automation ($current_daystamp)"
           git push origin "$branch_name"
 
-          # XXX TODO
-          # Perhaps post an issue somewhere, about that the fact that this
-          # branch has been created and now needs to be turned into a PR
-          # that some human can take responsibility for.
+          # Scheduled and manual runs create update-docs-urls branches for a human to turn into PRs.
 
       - name: Clean up old branches in github/github
         if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
         env:
-          GITHUB_TOKEN: ${{ secrets.DOCS_BOT_PAT_WRITEORG_PROJECT }}
+          GITHUB_TOKEN: ${{ secrets.DOCS_BOT_PAT_BASE }}
         run: |
           npm run validate-github-github-docs-urls -- clean-up-old-branches --prefix update-docs-urls
 
           echo "To see them all, go to:"
           echo "https://github.com/github/github/branches/all?query=update-docs-urls-"
 
-      # If a PR comes along to github/docs-internal that causes some
-      # URLs in docs-urls.json (in github/github) to now fail, then
-      # we'll want to make the PR author+reviewer aware of this.
-      # For example, you moved a page without setting up a redirect.
-      # Or you edited a heading that now breaks a URL with fragment.
-      # In the latter case, you might want to update the URL in docs-urls.json
-      # after this PR has landed, or consider using `<a name="..."></a>` as a
-      # workaround for the time being.
-      # First, gather the URLs that were relevant
+      # When a PR breaks docs-urls.json entries in github/github, comment for the
+      # author and reviewer.
+      # Common causes are moved pages without redirects or edited headings that break URL fragments.
+      # The fix can update docs-urls.json after merge or add a stable <a name="..."></a> anchor.
       - name: Get changed content/data files
         if: ${{ github.event_name == 'pull_request' }}
-        id: changed-files
-        uses: tj-actions/changed-files@1754cd4b9e661d1f0eced3b33545a8d8b3bc46d8 # v44.5.0
+        id: changed_files
+        uses: tj-actions/changed-files@22103cc46bda19c2b464ffe86db46df6922fd323 # v47.0.5
         with:
-          # No need to escape the file names because we make the output of
-          # tj-actions/changed-files be set as an environment variable. Not
-          # as a direct input to the line of bash that uses it.
-          safe_output: false
           files: |
             content/**
 
       - name: Generate PR comment
-        if: ${{ github.event_name == 'pull_request' && steps.changed-files.outputs.any_changed == 'true' }}
+        if: ${{ github.event_name == 'pull_request' && steps.changed_files.outputs.any_modified == 'true' }}
         env:
-          # Make it an environment variable so that its value doesn't need to be escaped.
-          # See https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-an-intermediate-environment-variable
-          CHANGED_FILES: |-
-            ${{ steps.changed-files.outputs.all_changed_files }}
-          GITHUB_TOKEN: ${{ secrets.DOCS_BOT_PAT_WRITEORG_PROJECT }}
+          CHANGED_FILES: ${{ steps.changed_files.outputs.all_modified_files }}
+          GITHUB_TOKEN: ${{ secrets.DOCS_BOT_PAT_BASE }}
           ISSUE_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
-        run: npm run validate-github-github-docs-urls -- post-pr-comment checks.json --changed-files $CHANGED_FILES
+        run: |
+          npm run validate-github-github-docs-urls -- post-pr-comment checks.json --changed-files $CHANGED_FILES
+
+      - uses: ./.github/actions/create-workflow-failure-issue
+        id: create-failure-issue
+        if: ${{ failure() && github.event_name == 'schedule' }}
+        with:
+          token: ${{ secrets.DOCS_BOT_PAT_BASE }}
 
       - uses: ./.github/actions/slack-alert
         if: ${{ failure() && github.event_name == 'schedule' }}
         with:
-          slack_channel_id: ${{ secrets.DOCS_ALERTS_SLACK_CHANNEL_ID }}
           slack_token: ${{ secrets.SLACK_DOCS_BOT_TOKEN }}
+          issue_url: ${{ steps.create-failure-issue.outputs.issue_url }}

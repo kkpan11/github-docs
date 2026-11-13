@@ -1,6 +1,6 @@
 ---
 title: About anonymized URLs
-intro: 'If you upload an image or video to {% data variables.product.product_name %}, the URL of the image or video will be modified so your information is not trackable.'
+intro: 'If you upload an image or video to {% data variables.product.github %}, the URL of the image or video will be modified so your information is not trackable.'
 redirect_from:
   - /articles/why-do-my-images-have-strange-urls
   - /articles/about-anonymized-image-urls
@@ -10,15 +10,22 @@ redirect_from:
 versions:
   fpt: '*'
   ghec: '*'
-topics:
-  - Identity
-  - Access management
+category:
+  - Learn about authentication
 ---
-To host your images, {% data variables.product.product_name %} uses the [open-source project Camo](https://github.com/atmos/camo). Camo generates an anonymous URL proxy for each file which hides your browser details and related information from other users. The URL starts `https://<subdomain>.githubusercontent.com/`, with different subdomains depending on how you uploaded the image.
+To host your images, {% data variables.product.github %} uses the [open-source project Camo](https://github.com/atmos/camo). Camo generates an anonymous URL proxy for each file which hides your browser details and related information from other users. On {% data variables.product.prodname_dotcom_the_website %}, the URL starts `https://<subdomain>.githubusercontent.com/`, with different subdomains depending on how you uploaded the image.
 
 Videos also get anonymized URLs with the same format as image URLs, but are not processed through Camo. This is because {% data variables.product.prodname_dotcom %} does not support externally hosted videos, so the anonymized URL is a link to the uploaded video hosted by {% data variables.product.prodname_dotcom %}.
 
 Anyone who receives your anonymized URL, directly or indirectly, may view your image or video. To keep sensitive media files private, restrict them to a private network or a server that requires authentication instead of using Camo.
+
+## Removing {% data variables.product.github %}-hosted attachments
+
+Files and images hosted under `github.com/user-attachments/` are separate from the comments and pull request descriptions that link to them. Removing a link from an issue comment or pull request description does not necessarily delete the uploaded file. An image uploaded while editing a pull request description can remain available even if you remove it before saving the description.
+
+To ask about removing an uploaded attachment, contact {% data variables.contact.contact_support %}. Support may be able to help remove it even if you no longer have its original URL. After an attachment is deleted, its URL should return a 404 error.
+
+Attachment deletion is different from purging an image from Camo's cache. For more information about purging the cache, see [Removing an image from Camo's cache](#removing-an-image-from-camos-cache).
 
 ## Troubleshooting issues with Camo
 
@@ -26,11 +33,8 @@ In rare circumstances, images that are processed through Camo might not appear o
 
 {% windows %}
 
-{% tip %}
-
-Windows users will either need to use the Git PowerShell (which is installed alongside [{% data variables.product.prodname_desktop %}](https://desktop.github.com/)) or download [curl for Windows](http://curl.haxx.se/download.html).
-
-{% endtip %}
+> [!TIP]
+> Windows users will either need to use the Git PowerShell (which is installed alongside [{% data variables.product.prodname_desktop %}](https://desktop.github.com/)) or download [curl for Windows](http://curl.haxx.se/download.html).
 
 {% endwindows %}
 
@@ -101,4 +105,4 @@ To fix this, please move the image to a service that is publicly available.
 
 ## Further reading
 
-* "[Proxying user images](https://github.com/blog/1766-proxying-user-images)" on {% data variables.product.prodname_blog %}
+* [Proxying user images](https://github.com/blog/1766-proxying-user-images) on {% data variables.product.prodname_blog %}

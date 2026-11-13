@@ -1,7 +1,7 @@
 import type { Response, NextFunction } from 'express'
 
 import type { ExtendedRequest } from '@/types'
-import { defaultCacheControl } from './cache-control.js'
+import { defaultCacheControl } from './cache-control'
 
 export default function trailingSlashes(req: ExtendedRequest, res: Response, next: NextFunction) {
   if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
@@ -11,12 +11,15 @@ export default function trailingSlashes(req: ExtendedRequest, res: Response, nex
       while (pathname.endsWith('/')) {
         pathname = pathname.slice(0, pathname.length - 1)
       }
-      let url = pathname
+      // An empty Location resolves to the same URL, so a path of only slashes goes to the homepage.
+      if (!pathname) pathname = '/'
+      // Collapse repeated slashes in the path only, because query values can contain //.
+      let url = pathname.replace(/\/+/g, '/')
       if (split.length) {
         url += `?${split.join('?')}`
       }
       defaultCacheControl(res)
-      return res.redirect(301, url)
+      return res.safeRedirect(301, url)
     }
   }
 

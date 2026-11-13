@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest'
 
 import { blockIndex } from '@/frame/middleware/block-robots'
-import { productMap } from '@/products/lib/all-products.js'
-import enterpriseServerReleases from '@/versions/lib/enterprise-server-releases.js'
+import { productMap } from '@/products/lib/all-products'
+import enterpriseServerReleases from '@/versions/lib/enterprise-server-releases'
 
 function allowIndex(path: string) {
   return !blockIndex(path)
@@ -20,20 +20,19 @@ describe('block robots', () => {
       .filter((product) => product.wip)
       .map((product) => product.id)
 
-    wipProductIds.forEach((id) => {
+    for (const id of wipProductIds) {
       const { href } = productMap[id]
       const blockedPaths = [
         `/en${href}`,
         `/en${href}/overview`,
         `/en${href}/overview/intro`,
-        `/en/enterprise/${enterpriseServerReleases.latest}/user${href}`,
-        `/en/enterprise/${enterpriseServerReleases.oldestSupported}/user${href}`,
+        `/ja${href}`,
       ]
 
-      blockedPaths.forEach((path) => {
+      for (const path of blockedPaths) {
         expect(allowIndex(path)).toBe(false)
-      })
-    })
+      }
+    }
   })
 
   test('disallows crawling of early access "hidden" products', async () => {
@@ -41,19 +40,46 @@ describe('block robots', () => {
       .filter((product) => product.hidden)
       .map((product) => product.id)
 
-    hiddenProductIds.forEach((id) => {
+    for (const id of hiddenProductIds) {
       const { versions } = productMap[id]
-      if (!versions) return
+      if (!versions) continue
       const blockedPaths = versions
         .map((version) => {
           return [`/en/${version}/${id}`, `/en/${version}/${id}/some-early-access-article`]
         })
         .flat()
 
-      blockedPaths.forEach((path) => {
+      for (const path of blockedPaths) {
         expect(allowIndex(path)).toBe(false)
-      })
-    })
+      }
+    }
+  })
+
+  test('disallows crawling of the hidden search page', async () => {
+    expect(productMap.search.hidden).toBe(true)
+    expect(allowIndex('/en/search')).toBe(false)
+    expect(allowIndex('/ja/search')).toBe(false)
+    expect(allowIndex('/en/enterprise-cloud@latest/search')).toBe(false)
+    expect(allowIndex('/en/search.md')).toBe(false)
+    expect(allowIndex('/ja/search.md')).toBe(false)
+    expect(allowIndex('/en/enterprise-cloud@latest/search.md')).toBe(false)
+  })
+
+  test('allows crawling of public pages whose path contains "search"', async () => {
+    expect(productMap['search-github'].hidden).toBe(false)
+    const allowedPaths = [
+      '/en/search-github',
+      '/en/search-github.md',
+      '/en/search-github/searching-on-github/searching-code',
+      '/ja/enterprise-cloud@latest/search-github/searching-on-github/searching-code',
+      '/en/rest/search/search',
+      '/en/graphql/reference/search',
+      '/en/repositories/releasing-projects-on-github/searching-a-repositorys-releases',
+    ]
+
+    for (const path of allowedPaths) {
+      expect(allowIndex(path)).toBe(true)
+    }
   })
 
   test('allows crawling of non-WIP products', async () => {
@@ -68,7 +94,7 @@ describe('block robots', () => {
   })
 
   test('disallows crawling of deprecated enterprise releases', async () => {
-    enterpriseServerReleases.deprecated.forEach((version) => {
+    for (const version of enterpriseServerReleases.deprecated) {
       const blockedPaths = [
         `/en/enterprise-server@${version}/actions`,
         `/en/enterprise/${version}/actions`,
@@ -76,9 +102,9 @@ describe('block robots', () => {
         `/en/enterprise/${version}/actions/overview`,
       ]
 
-      blockedPaths.forEach((path) => {
+      for (const path of blockedPaths) {
         expect(allowIndex(path)).toBe(false)
-      })
-    })
+      }
+    }
   })
 })

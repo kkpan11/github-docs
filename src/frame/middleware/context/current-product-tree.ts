@@ -3,10 +3,10 @@ import path from 'path'
 import type { Response, NextFunction } from 'express'
 
 import type { ExtendedRequest, TitlesTree, Tree, Context } from '@/types'
-import { liquid } from '@/content-render/index.js'
+import { liquid } from '@/content-render/index'
 import findPageInSiteTree from '@/frame/lib/find-page-in-site-tree'
-import removeFPTFromPath from '@/versions/lib/remove-fpt-from-path.js'
-import { executeWithFallback } from '@/languages/lib/render-with-fallback.js'
+import removeFPTFromPath from '@/versions/lib/remove-fpt-from-path'
+import { executeWithFallback } from '@/languages/lib/render-with-fallback'
 
 // This module adds currentProductTree to the context object for use in layouts.
 export default async function currentProductTree(
@@ -43,13 +43,13 @@ export default async function currentProductTree(
 
   // First make a slim tree of just the 'href', 'title', 'shortTitle'
   // 'documentType' and 'childPages' (which is recursive).
-  // This gets used for map topic and category pages.
+  // This gets used for subcategory and category pages.
   req.context.currentProductTreeTitles = await getCurrentProductTreeTitles(
     req.context.currentProductTree,
     req.context,
   )
   // Now make an even slimmer version that excludes all hidden pages.
-  // This is i used for sidebars.
+  // This is used for sidebars.
   req.context.currentProductTreeTitlesExcludeHidden = excludeHidden(
     req.context.currentProductTreeTitles,
   )
@@ -77,34 +77,13 @@ async function getCurrentProductTreeTitles(input: Tree, context: Context): Promi
   const enPage =
     page.languageCode !== 'en' ? context.pages![href.replace(`/${page.languageCode}`, '/en')] : null
 
-  let rawShortTitle = page.rawShortTitle // might change our minds about this
-  // A lot of translations have a short title that is identical to the
-  // English equivalent. E.g.
-  //
-  //   content/foo.md:
-  //
-  //      title: Something Something Bla
-  //      shortTitle: Something
-  //
-  //   translations/docs-internal.se-sv/content/foo.md:
-  //
-  //      title: Nånting Nånting Blä
-  //      shortTitle: Something
-  //
-  // I.e. the translations `shortTitle` hasn't been translated.
-  // If this is the case, use the long title instead.
-  if (page.languageCode !== 'en' && page.rawShortTitle) {
-    if (page.rawShortTitle === enPage!.shortTitle) {
-      rawShortTitle = page.rawTitle
-    }
-  }
   const renderedFullTitle = await executeWithFallback(
     context,
     () => liquid.parseAndRender(page.rawTitle, context),
     (enContext: Context) => liquid.parseAndRender(enPage!.rawTitle, enContext),
   )
   let renderedShortTitle = ''
-  if (rawShortTitle) {
+  if (page.rawShortTitle) {
     renderedShortTitle = await executeWithFallback(
       context,
       () => liquid.parseAndRender(page.rawShortTitle!, context),
@@ -125,6 +104,22 @@ async function getCurrentProductTreeTitles(input: Tree, context: Context): Promi
     childPages: childPages.filter(Boolean),
   }
   if (page.hidden) node.hidden = true
+  if (page.sidebarLink) {
+    // Frontmatter hrefs are unversioned, and the page object is shared by every version.
+    node.sidebarLink = {
+      ...page.sidebarLink,
+      href: removeFPTFromPath(
+        path.posix.join(
+          '/',
+          context.currentLanguage!,
+          context.currentVersion!,
+          page.sidebarLink.href,
+        ),
+      ),
+    }
+  }
+  if (page.layout && typeof page.layout === 'string') node.layout = page.layout
+  if (input.crossProductChild) node.crossProductChild = true
   return node
 }
 
@@ -137,16 +132,32 @@ function excludeHidden(tree: TitlesTree) {
     documentType: tree.documentType,
     childPages: tree.childPages.map(excludeHidden).filter(Boolean) as TitlesTree[],
   }
+  if (tree.sidebarLink) newTree.sidebarLink = tree.sidebarLink
+  if (tree.layout && typeof tree.layout === 'string') newTree.layout = tree.layout
+  if (tree.crossProductChild) newTree.crossProductChild = true
   return newTree
 }
 
 function sidebarTree(tree: TitlesTree) {
-  const { href, title, shortTitle, childPages } = tree
-  const childChildPages = childPages.map(sidebarTree)
+  const { href, title, shortTitle, childPages, sidebarLink } = tree
+  // Filter out cross-product children from the sidebar
+  const filteredChildPages = childPages.filter((child) => !child.crossProductChild)
+
+  // Filter out children that are descendants of another sibling.
+  // When a page lists both a subdirectory and individual articles from it,
+  // the articles should only appear nested under the subdirectory in the sidebar.
+  const siblingHrefs = filteredChildPages.map((c) => c.href)
+  const dedupedChildPages = filteredChildPages.filter(
+    (child) => !siblingHrefs.some((sh) => sh !== child.href && child.href.startsWith(`${sh}/`)),
+  )
+
+  const childChildPages = dedupedChildPages.map(sidebarTree)
   const newTree: TitlesTree = {
     href,
     title: shortTitle || title,
     childPages: childChildPages,
   }
+  if (sidebarLink) newTree.sidebarLink = sidebarLink
+  if (tree.layout && typeof tree.layout === 'string') newTree.layout = tree.layout
   return newTree
 }

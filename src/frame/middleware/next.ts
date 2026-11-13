@@ -11,16 +11,22 @@ export const nextApp = next({ dev: isDevelopment })
 export const nextHandleRequest = nextApp.getRequestHandler()
 await nextApp.prepare()
 
-function renderPageWithNext(req: ExtendedRequest, res: Response, next: NextFunction) {
+function renderPageWithNext(req: ExtendedRequest, res: Response, nextFn: NextFunction) {
+  // _next asset and HMR requests, like /_next/webpack-hmr, bypass docs routing.
   if (req.path.startsWith('/_next') && !req.path.startsWith('/_next/data')) {
     return nextHandleRequest(req, res)
   }
 
-  // Note that URLs like `/_next/webpack-hmr` and
-  // '/_next/static/webpack/64e44ef62e261d3a.webpack.hot-update.json' has to
-  // go through here.
+  return nextFn()
+}
 
-  return next()
+// Dev overlay endpoints, like /__nextjs_original-stack-frames, read the raw body, so they run before express.json().
+export function renderNextDevEndpoints(req: ExtendedRequest, res: Response, nextFn: NextFunction) {
+  if (req.path.startsWith('/__nextjs_')) {
+    return nextHandleRequest(req, res)
+  }
+
+  return nextFn()
 }
 
 export default renderPageWithNext

@@ -1,6 +1,6 @@
 ---
 title: Configuring commit rebasing for pull requests
-intro: 'You can enforce, allow, or disable commit rebasing for all pull request merges on {% data variables.location.product_location %} in your repository.'
+intro: 'You can enforce, allow, or disable commit rebasing for all pull request merges on {% data variables.product.prodname_dotcom %} in your repository.'
 redirect_from:
   - /articles/configuring-commit-rebasing-for-pull-requests
   - /github/administering-a-repository/configuring-commit-rebasing-for-pull-requests
@@ -9,9 +9,9 @@ versions:
   fpt: '*'
   ghes: '*'
   ghec: '*'
-topics:
-  - Repositories
 shortTitle: Configure commit rebasing
+category:
+  - Configure merges and pull requests
 ---
 {% data reusables.pull_requests.configure_pull_request_merges_intro %}
 

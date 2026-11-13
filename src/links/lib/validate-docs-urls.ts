@@ -1,14 +1,14 @@
 import type { Response } from 'express'
-import cheerio from 'cheerio'
+import { load } from 'cheerio'
 
 import warmServer from '@/frame/lib/warm-server'
-import { liquid } from '@/content-render/index.js'
-import shortVersions from '@/versions/middleware/short-versions.js'
+import { liquid } from '@/content-render/index'
+import shortVersions from '@/versions/middleware/short-versions'
 import contextualize from '@/frame/middleware/context/context'
-import features from '@/versions/middleware/features.js'
-import findPage from '@/frame/middleware/find-page.js'
-import { createMinimalProcessor } from '@/content-render/unified/processor.js'
-import getRedirect from '@/redirects/lib/get-redirect.js'
+import features from '@/versions/middleware/features'
+import findPage from '@/frame/middleware/find-page'
+import { createMinimalProcessor } from '@/content-render/unified/processor'
+import getRedirect from '@/redirects/lib/get-redirect'
 import type { ExtendedRequest, Page } from '@/types'
 
 export type DocsUrls = {
@@ -31,10 +31,9 @@ export type Check = {
   fragment: string | undefined
   fragmentFound?: boolean
   fragmentCandidates?: string[]
-  // If the URL lead to a redirect, this is its URL (starting with /en/...)
+  // Redirect destination with the /en prefix, when the source URL redirects.
   redirectPageURL?: string
-  // If the URL lead to a redirect, this is what the new URL should be
-  // (for example /the/new/pathname#my-fragment)
+  // Suggested replacement URL without /en, preserving any fragment.
   redirect?: string
 }
 
@@ -49,8 +48,7 @@ export async function validateDocsUrl(docsUrls: DocsUrls, { checkFragments = fal
       throw new Error(`URL doesn't start with '/': ${url} (identifier: ${identifier})`)
     }
     const pathname = url.split('?')[0]
-    // If the url is just '/' we want to check the homepage,
-    // which is `/en`, not `/en/`.
+    // The homepage resolves at /en, not /en/.
     const [pageURL, fragment] = `/en${pathname === '/' ? '' : pathname}`.split('#')
 
     const page = pages[pageURL]
@@ -69,7 +67,7 @@ export async function validateDocsUrl(docsUrls: DocsUrls, { checkFragments = fal
         pages,
       })
       if (redirect && isEnterpriseCloudRedirectOnly(pageURL, redirect)) {
-        // Ignore this one. It just added enterprise-cloud@latest to the URL.
+        // Skip redirects that only add the Enterprise Cloud prefix; they are not reported.
         continue
       }
       if (redirect) {
@@ -86,10 +84,11 @@ export async function validateDocsUrl(docsUrls: DocsUrls, { checkFragments = fal
       }
     }
 
-    if (checkFragments && fragment) {
-      const permalink = (redirectedPage || page).permalinks[0]
-      const html = await renderInnerHTML(redirectedPage || page, permalink)
-      const $ = cheerio.load(html)
+    const targetPage = redirectedPage || page
+    if (checkFragments && fragment && targetPage) {
+      const permalink = targetPage.permalinks[0]
+      const html = await renderInnerHTML(targetPage, permalink)
+      const $ = load(html)
       check.fragmentFound = $(`#${fragment}`).length > 0 || $(`a[name="${fragment}"]`).length > 0
       if (!check.fragmentFound) {
         const fragmentCandidates: string[] = []
@@ -108,8 +107,7 @@ export async function validateDocsUrl(docsUrls: DocsUrls, { checkFragments = fal
 }
 
 function isEnterpriseCloudRedirectOnly(originalUrl: string, redirectUrl: string) {
-  // A lot of URLs don't work in free-pro-team so all they do is redirect
-  // from {OLD-URL} to "/enterprise-count@latest/{OLD-URL}"
+  // Many URLs only redirect by adding /enterprise-cloud@latest under free-pro-team.
   return redirectUrl.replace('/enterprise-cloud@latest', '') === originalUrl
 }
 
@@ -123,13 +121,12 @@ async function renderInnerHTML(page: Page, permalink: Permalink) {
     language: permalink.languageCode,
     pagePath,
     cookies: {},
-    // The contextualize() middleware will create a new one.
-    // Here it just exists for the sake of TypeScript.
+    // contextualize replaces this placeholder, but TypeScript needs the key upfront.
     context: {},
   }
   await contextualize(req as ExtendedRequest, res as Response, next)
-  await shortVersions(req, res, next)
-  await findPage(req, res, next)
+  await shortVersions(req as ExtendedRequest, res as Response, next)
+  await findPage(req as ExtendedRequest, res as Response, next)
   features(req as ExtendedRequest, res as Response, next)
 
   const markdown = await liquid.parseAndRender(page.markdown, req.context)

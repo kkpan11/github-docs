@@ -1,7 +1,7 @@
 ---
 title: Enforcing policies for GitHub Actions in your enterprise
-intro: 'You can enforce policies for {% data variables.product.prodname_actions %} within your enterprise''s organizations, or allow policies to be set in each organization.'
-permissions: 'Enterprise owners{% ifversion custom-org-roles %} and users with the "Manage organization Actions policies" permission{% endif %} can enforce policies for {% data variables.product.prodname_actions %} in an enterprise.'
+intro: You can enforce policies to manage how {% data variables.product.prodname_actions %} can be used within your enterprise.
+permissions: Enterprise owners
 redirect_from:
   - /enterprise/admin/github-actions/enforcing-github-actions-policies-for-your-enterprise
   - /admin/github-actions/enforcing-github-actions-policies-for-your-enterprise
@@ -17,179 +17,260 @@ redirect_from:
 versions:
   ghec: '*'
   ghes: '*'
-type: how_to
-topics:
-  - Actions
-  - Enterprise
-  - Policies
 shortTitle: GitHub Actions policies
+contentType: how-tos
+category:
+  - Secure and govern your enterprise
 ---
 
+## What are policies for {% data variables.product.prodname_actions %}?
 
-## About policies for {% data variables.product.prodname_actions %} in your enterprise
+Enterprise policies control the options that are available to enterprise members when they use {% data variables.product.prodname_actions %}.
 
-{% data variables.product.prodname_actions %} helps members of your enterprise automate software development workflows on {% data variables.product.product_name %}. For more information, see "[AUTOTITLE](/actions/learn-github-actions/understanding-github-actions)."
+If you don't enforce enterprise policies, organization owners{% ifversion custom-org-roles %} and users with the "Manage organization Actions policies" permission{% endif %} have full control over {% data variables.product.prodname_actions %} for their organizations.
 
-{% ifversion ghes %}If you enable {% data variables.product.prodname_actions %}, any{% else %}Any{% endif %} organization on {% data variables.location.product_location %} can use {% data variables.product.prodname_actions %}. You can enforce policies to control how members of your enterprise on {% data variables.product.product_name %} use {% data variables.product.prodname_actions %}. By default, organization owners{% ifversion custom-org-roles %} and users with the "Manage organization Actions policies" permission{% endif %} can manage how members use {% data variables.product.prodname_actions %}. For more information, see "[AUTOTITLE](/organizations/managing-organization-settings/disabling-or-limiting-github-actions-for-your-organization)."
+> [!NOTE] {% data variables.product.prodname_actions %} must be enabled for repositories in an organization for the {% data variables.product.prodname_codeql %} {% data variables.product.prodname_code_scanning %} default setup and {% data variables.product.prodname_code_quality %} workflows to run. However, the {% data variables.product.prodname_codeql %} default setup for {% data variables.product.prodname_code_scanning %} is not affected by other {% data variables.product.prodname_actions %} policies (such as restricting access to public actions or reusable workflows).
 
-{% ifversion custom-org-roles %}For more information about custom organization roles, see "[AUTOTITLE](/organizations/managing-peoples-access-to-your-organization-with-roles/about-custom-organization-roles)."{% endif %}
-
-## Enforcing a policy to restrict the use of {% data variables.product.prodname_actions %} in your enterprise
-
-You can choose to disable {% data variables.product.prodname_actions %} for all organizations in your enterprise, or only allow specific organizations. You can also limit the use of public actions {% ifversion actions-workflow-policy %}and reusable workflows{% endif %}, so that people can only use local actions {% ifversion actions-workflow-policy %}and reusable workflows{% endif %} that exist in your enterprise.
+## Enforcing policies
 
 {% data reusables.enterprise-accounts.access-enterprise %}
 {% data reusables.enterprise-accounts.policies-tab %}
 {% data reusables.enterprise-accounts.actions-tab %}
-1. Under "Policies", select your options.
+1. After you configure each policy, click **Save**.
 
-   {% data reusables.actions.actions-use-policy-settings %}
+For more information about each section of the "Policies" page, continue reading.
 
-   {%- ifversion ghes %}
-   {% note %}
+## Policies
 
-   **Note:** To enable access to public actions{% ifversion actions-workflow-policy %} and reusable workflows{% endif %}, you must first configure {% data variables.location.product_location %} to connect to {% data variables.product.prodname_dotcom_the_website %}. For more information, see "[AUTOTITLE](/admin/github-actions/managing-access-to-actions-from-githubcom/enabling-automatic-access-to-githubcom-actions-using-github-connect)."
+In the "Policies" section, you can control which organizations within your enterprise can use {% data variables.product.prodname_actions %}, with the following options:
 
-   {% endnote %}
-   {%- endif %}
-1. Click **Save**.
+* Enable {% data variables.product.prodname_actions %} for all organizations
+* Enable {% data variables.product.prodname_actions %} for specific organizations
+* Disable {% data variables.product.prodname_actions %} for all organizations
 
-{% data reusables.actions.allow-specific-actions-intro %}
+> [!NOTE]
+> If you disable {% data variables.product.prodname_actions %}, or do not enable the feature for one or more organizations, this blocks affected organizations from using {% data variables.product.prodname_code_scanning %} and {% data variables.product.prodname_code_quality %} analysis.
 
-{% data reusables.enterprise-accounts.access-enterprise %}
-{% data reusables.enterprise-accounts.policies-tab %}
-{% data reusables.enterprise-accounts.actions-tab %}
-1. Under "Policies", select {% data reusables.actions.policy-label-for-select-actions-workflows %} and add your required actions{% ifversion actions-workflow-policy %} and reusable workflows{% endif %} to the list.
+### Controlling access to public actions{% ifversion actions-workflow-policy %} and reusable workflows{% endif %}
 
-{% ifversion actions-disable-repo-runners %}
+Enterprises often want to limit access to only a well-tested group of public actions {% ifversion actions-workflow-policy %}and reusable workflows{% endif %} as part of their supply chain governance. The policies available in {% data variables.product.github %} allow you to control access without blocking the dynamic workflows used by {% data variables.product.prodname_code_scanning %} and {% data variables.product.prodname_code_quality %}.
 
-## Disabling repository-level self-hosted runners
+You can enforce strict controls without defining exceptions or additional configuration for {% data variables.product.prodname_code_scanning %} and {% data variables.product.prodname_code_quality %}, with the following options:
 
-{% data reusables.actions.disable-selfhosted-runners-overview %} For more information on creating self-hosted runners at the repository level, see "[AUTOTITLE](/enterprise-cloud@latest/actions/hosting-your-own-runners/managing-self-hosted-runners/adding-self-hosted-runners#adding-a-self-hosted-runner-to-a-repository)."
+* **Allow all actions {% ifversion actions-workflow-policy %}and reusable workflows{% endif %}:** Any action {% ifversion actions-workflow-policy %}or reusable workflow{% endif %} can be used, regardless of who authored it or where it is defined.
+* **Allow enterprise actions {% ifversion actions-workflow-policy %}and reusable workflows{% endif %}:** Only actions {% ifversion actions-workflow-policy %}and reusable workflows{% endif %} defined in a repository within the enterprise can be used. {% ifversion ghec %}Blocks all access to actions authored by {% data variables.product.prodname_dotcom %}, such as the [`actions/checkout`](https://github.com/actions/checkout) action.{% endif %}
+* {% data reusables.actions.policy-label-for-select-actions-workflows %}: Any action {% ifversion actions-workflow-policy %}or reusable workflow{% endif %} defined in a repository within the enterprise can be used, plus any action {% ifversion actions-workflow-policy %}or reusable workflow{% endif %} that matches criteria you specify.
+* **Require actions to be pinned to a full-length commit SHA**: All actions must be pinned to a full-length commit SHA to be used. This includes actions from your enterprise and actions authored by {% data variables.product.github %}. {% ifversion actions-workflow-policy %}Reusable workflows can still be referenced by tag.{% endif %} For more information, see [AUTOTITLE](/actions/reference/security/secure-use#using-third-party-actions).
 
-By default anyone with admin access to a repository can add a self-hosted runner for the repository. The enterprise settings allow you to disable the use of repository-level self-hosted runners across all repositories in your enterprise. If you allow repository-level self-hosted runners for your enterprise, organization owners{% ifversion custom-org-roles %} and users with the "Manage organization runners and runner groups" permission{% endif %} can choose to allow or prevent creation of repository-level self-hosted runners for some or all repositories in their organization. For more information see, "[AUTOTITLE](/organizations/managing-organization-settings/disabling-or-limiting-github-actions-for-your-organization)."
+<span id="allowing-select-actions-and-reusable-workflows-to-run" ></span>
 
-{% ifversion custom-org-roles %}For more information about custom organization roles, see "[AUTOTITLE](/organizations/managing-peoples-access-to-your-organization-with-roles/about-custom-organization-roles)."{% endif %}
+### {% data reusables.actions.policy-label-for-select-actions-workflows %}
+
+If you choose this option, actions {% ifversion actions-workflow-policy %}and reusable workflows{% endif %} within your enterprise are allowed, and you'll have the following options for allowing other actions{% ifversion actions-workflow-policy %} and reusable workflows{% endif %}:
+
+* **Allow actions created by {% data variables.product.prodname_dotcom %}:** Allows all actions created by {% data variables.product.prodname_dotcom %}, located in the [`actions`](https://github.com/actions) and [`github`](https://github.com/github) organizations.
+* **Allow Marketplace actions by verified creators:** Allows all {% data variables.product.prodname_marketplace %} actions created by verified creators, labeled with {% octicon "verified" aria-label="The verified badge" %}.{% ifversion ghes %}
+
+   Only available if you have {% data variables.product.prodname_github_connect %} enabled and configured with {% data variables.product.prodname_actions %}. See [AUTOTITLE](/admin/managing-github-actions-for-your-enterprise/managing-access-to-actions-from-githubcom/enabling-automatic-access-to-githubcom-actions-using-github-connect).{% endif %}
+* **Allow or block specified actions{% ifversion actions-workflow-policy %} and reusable workflows{% endif %}:** Allows actions{% ifversion actions-workflow-policy %} and reusable workflows{% endif %} that you specify. You can specify individual actions{% ifversion actions-workflow-policy %} and reusable workflows{% endif %} or entire organizations and repositories.
+
+When specifying actions{% ifversion actions-workflow-policy %} and reusable workflows{% endif %}, use the following syntax:
+
+* To restrict access to specific tags or commit SHAs of an action{% ifversion actions-workflow-policy %} or reusable workflow{% endif %}, use the same syntax used in the workflow to select the action{% ifversion actions-workflow-policy %} or reusable workflow{% endif %}.
+   * For an action, the syntax is `OWNER/REPOSITORY@TAG-OR-SHA`. For example, use `actions/javascript-action@v1.0.1` to select a tag or `actions/javascript-action@a824008085750b8e136effc585c3cd6082bd575f` to select a SHA.
+   {%- ifversion actions-workflow-policy %}
+   * For a reusable workflow, the syntax is `OWNER/REPOSITORY/PATH/FILENAME@TAG-OR-SHA`. For example, `octo-org/another-repo/.github/workflows/workflow.yml@v1`.
+    {%- endif %}
+* To specify a pattern, use the wildcard character, `*`.
+   * To allow all actions{% ifversion actions-workflow-policy %} and reusable workflows{% endif %} in organizations that start with `space-org`, use `space-org*/*`.
+   * To allow all actions{% ifversion actions-workflow-policy %} and reusable workflows{% endif %} in repositories that start with octocat, use `*/octocat**@*`.
+* To specify multiple patterns, use `,` to separate patterns.
+   * To allow all actions{% ifversion actions-workflow-policy %} and reusable workflows{% endif %} from the `octocat` and `octokit` organizations, use `octocat/*, octokit/*`.
+* To block specific patterns, use the `!` prefix.
+   * To allow all actions{% ifversion actions-workflow-policy %} and reusable workflows{% endif %} from the `space-org` organization, but block a specific action like `space-org/action`, use `space-org/*, !space-org/action@*`.
+   * By default, only actions{% ifversion actions-workflow-policy %} and reusable workflows{% endif %} specified in the list will be allowed. To allow all actions{% ifversion actions-workflow-policy %} and reusable workflows{% endif %} while also blocking specific actions, use `*, !space-org/action@*`.
+
+{% data reusables.actions.lockfile-allowed-actions-sha %}
+
+Policies never restrict access to local actions on the runner filesystem (where the `uses:` path start with `./`).
+
+## Runners
+
+By default, anyone with admin access to a repository can add a self-hosted runner for the repository, and self-hosted runners come with risks:
+
+* There is no guarantee that self-hosted runners will be hosted on ephemeral, clean virtual machines. As a result, they may be compromised by untrusted code in a workflow.
+* Anyone who can fork the repository and open a pull request can compromise the self-hosted runner environment, potentially gaining access to secrets and the `GITHUB_TOKEN`, which may have write access to the repository.
+
+In the "Runners" section, you can mediate these risks by disabling the use of repository-level self-hosted runners.
+
+{% ifversion ghec %}
+* **Disable for all organizations:** Prevents the creation of runners at the repository level.
+* **Disable in all Enterprise Managed User (EMU) repositories:** Prevents the creation of runners for repositories owned by {% data variables.enterprise.prodname_managed_users %}.
+{% endif %}
 
 {% data reusables.actions.disable-selfhosted-runners-note %}
 
-{% data reusables.enterprise-accounts.access-enterprise %}
-{% data reusables.enterprise-accounts.policies-tab %}
-{% data reusables.enterprise-accounts.actions-tab %}
-1. In the "Runners" section, select **Disable for all organizations**.{% ifversion ghec %}
+## Disabling standard hosted runners
 
-   {% note %}
+You can disable standard {% data variables.product.github %}-hosted runners at the enterprise level. This setting requires workflows to target runners through runner groups and helps enforce consistent access controls and governance.
 
-   **Note**: Owners of an {% data variables.enterprise.prodname_emu_enterprise %} can also choose to select **Disable in all Enterprise Managed User (EMU) repositories** to restrict runner creation for repositories that are owned by managed user accounts.
-
-   {% endnote %}
-
-   {% endif %}
-1. Click **Save** to apply the change.
-
-{% endif %}
-
-## Enforcing a policy for artifact and log retention in your enterprise
-
-{% data variables.product.prodname_actions %} can store artifact and log files. For more information, see "[AUTOTITLE](/actions/managing-workflow-runs/downloading-workflow-artifacts)."
-
-{% data reusables.actions.about-artifact-log-retention %}
+For information about job concurrency limits for {% data variables.product.github %}-hosted runners, see [AUTOTITLE](/actions/reference/limits#job-concurrency-limits-for-github-hosted-runners).
 
 {% data reusables.enterprise-accounts.access-enterprise %}
 {% data reusables.enterprise-accounts.policies-tab %}
 {% data reusables.enterprise-accounts.actions-tab %}
-{% data reusables.actions.change-retention-period-for-artifacts-logs  %}
-
-## Enforcing a policy for fork pull requests in your enterprise
-
-You can enforce policies to control how {% data variables.product.prodname_actions %} behaves for {% data variables.location.product_location %} when members of your enterprise{% ifversion ghec %} or outside collaborators{% endif %} run workflows from forks.
+1. Scroll to the "Standard hosted runners" section and click **Disable for all organizations**.
+1. Click **Save**.
 
 {% ifversion ghec %}
 
-### Enforcing a policy for approval of pull requests from outside collaborators
+## Enabling multi-cloud compute
 
-{% data reusables.actions.workflow-run-approve-public-fork %}
+You can opt in to multi-cloud compute to help improve runner availability for eligible Linux jobs in your enterprise. Existing runner labels and workflow syntax remain unchanged. For eligible runner configurations, see [Cloud hosts used by {% data variables.product.prodname_dotcom %}-hosted runners](/actions/concepts/runners/github-hosted-runners#cloud-hosts-used-by-github-hosted-runners).
+
+Before enabling multi-cloud compute, update any IP allowlists or network-based access policies your workflows rely on to include all published runner IP ranges. See [IP addresses](/actions/reference/runners/github-hosted-runners#ip-addresses). If your applications use Azure SDK credentials, also review [Azure SDK authentication troubleshooting](/actions/how-tos/troubleshoot-workflows#azure-sdk-authentication-failures).
+
+To opt in to multi-cloud compute:
 
 {% data reusables.enterprise-accounts.access-enterprise %}
 {% data reusables.enterprise-accounts.policies-tab %}
 {% data reusables.enterprise-accounts.actions-tab %}
-{% data reusables.actions.workflows-from-public-fork-setting %}
-
-{% data reusables.actions.workflow-run-approve-link %}
+1. Click **General**.
+1. Click the **Policies** tab.
+1. Under "Hosted compute cloud providers", select the dropdown menu, then click **Multi-cloud**.
 
 {% endif %}
 
-### Enforcing a policy for fork pull requests in private repositories
+## Custom images
 
-{% data reusables.actions.private-repository-forks-overview %}
+In the "Custom images" section, you can control which organizations in your enterprise are allowed to create and manage custom images with the following access policy:
+
+* **Enable for all organizations**: All organizations, including any created in the future, may use or create custom images.
+* **Enable for specific organizations**: Only selected organizations may use or create custom images.
+* **Disable for all organizations**: No organization may use or create custom images.
+
+### Custom images retention policies
+
+You can define how long custom image versions are retained and when they become inactive.
+
+* **Maximum versions per image**: Limits how many versions of each image are retained. When this limit is exceeded, the oldest unused image versions are automatically deleted.
+  * **Default**: 20 versions
+  * **Configurable range**: 1–100 versions
+* **Unused version retention**: Deletes image versions that have not been used for a specified number of days. Image versions that are assigned to a runner pool but not actively used are also considered unused.
+  * **Default**: 30 days
+  * **Configurable range**: 1–90 days
+* **Maximum version age**: Disables image versions that were created earlier than the specified number of days. Disabled image versions cannot be used by runners until the policy limit is increased.
+  * **Default**: 60 days
+  * **Configurable range**: 7–90 days
+
+<!-- Anchor to maintain the existing "#artifact-and-log-retention" link from other articles. -->
+<a name="artifact-and-log-retention"></a>
+## {% ifversion ghes %}Check, workflow run, status, artifact, log, and cache settings{% else %}Check, workflow run, status, artifact and log retention{% endif %}
+
+{% ifversion ghes %}
+
+These policies control storage of checks, workflow runs, commit statuses, artifacts, logs, and caches.
+
+### Check, workflow run, status, artifact and log retention
+
+{% endif %}
+
+By default, checks, workflow runs, commit statuses, and the artifacts and log files generated by workflows are retained for 90 days. {% ifversion ghes %}You can change this retention period to anywhere between 1 and 400 days.{% else %}You can change the retention period.
+
+* For public repositories, you can configure a period between 1 and 90 days.
+* For private and internal repositories, you can configure a period between 1 and 400 days.
+{% endif %}
+
+{% ifversion ghec %}
+
+> [!IMPORTANT]
+> Starting October 1, 2026, these policies will apply to checks, workflow runs, and commit statuses in addition to artifacts and logs. Until then, checks, workflow runs, and commit statuses are retained for 400+ days regardless of your configured retention period. Make sure to review your retention setting and make any adjustments before October 1. For more information, see [the {% data variables.product.company_short %} changelog](https://github.blog/changelog/2026-07-17-actions-retention-will-cover-checks-workflow-runs-and-statuses/).
+
+{% endif %}
+
+{% data reusables.actions.checks-and-statuses-retention-scope %}
+
+Changes only apply to new checks, workflow runs, commit statuses, artifacts, and log files.
+
+{% ifversion ghec %}
+
+### Cache settings
+
+You can configure maximum cache retention and size limits that will apply across your entire enterprise. If you increase the "Cache size eviction limit" beyond the 10 GB included in your plan, you will be charged for any additional storage of cached entries.
+
+By default:
+
+* Caches are retained for 7 days before automatic deletion.
+* The total cache storage limit is 10 GB per repository.
+
+You can customize these settings to set maximum limits for cache retention and cache storage size across your enterprise:
+
+* **Cache retention**: Configure up to 90 days for public repositories or 365 days for private and internal repositories.
+* **Cache size eviction limit**: Configure up to 10,000 GB per repository.
+
+The settings you configure at the enterprise level act as maximum limits. Organization owners can opt in to configure limits for their organization, but cannot exceed the limits set at the enterprise level. Repository administrators can opt in to configure limits for their repositories, but cannot exceed the limits set at the organization level.
+
+For more information about cache eviction, see [AUTOTITLE](/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy).
+
+{% endif %}
+
+{% ifversion ghes %}
+
+### Maximum and default cache size limits
+
+By default:
+
+* The total cache storage that {% data variables.product.prodname_actions %} uses on the external storage for {% data variables.location.product_location %} is limited to a maximum of 10 GB per repository.
+* The maximum allowed size that can be set for a repository is 25 GB.
+
+{% data reusables.actions.cache-eviction-process %}
+
+You can customize both the default total cache size for each repository and the maximum total cache size allowed for a repository. For example, you might want the default total cache size for each repository to be 5 GB, but also allow administrators to configure a total cache size up to 15 GB for individual repositories.
+
+Organization owners can set a lower total cache size that applies to each repository in their organization. People with admin access to a repository can set a total cache size for their repository up to the maximum cache size allowed by the enterprise or organization policy setting.
+
+{% endif %}
+
+{% ifversion ghec %}
+
+## Fork pull request workflows from outside collaborators
+
+Anyone can fork a public repository, then submit a pull request to propose changes to the repository's workflows. To prevent abuse, workflows will not run automatically on pull requests created by some contributors.
+
+You can configure which pull requests require approval before they are run.
+
+>[!WARNING] When requiring approvals only for first-time contributors (the first two settings), a user that has had any commit or pull request merged into the repository will not require approval. A malicious user could meet this requirement by getting a simple typo or other innocuous change accepted by a maintainer, either as part of a pull request they have authored or as part of another user's pull request.
+
+* **Require approval for first-time contributors who are new to {% data variables.product.prodname_dotcom %}**. Requires approval for users who have never committed to the repository and have new {% data variables.product.prodname_dotcom %} accounts.
+* **Require approval for first-time contributors**. Requires approval for users who have never committed to the repository.
+* **Require approval for all outside collaborators**. Requires approval for all users who are not organization members.
+
+> [!NOTE] Workflows on the base branch triggered by `pull_request_target` events will always run, regardless of approval settings.
+
+{% endif %}
+
+## Fork pull request workflows in private repositories
+
+You can control how users can run workflows on `pull_request` events in private and internal repositories.
+
+* **Run workflows from fork pull requests**. Users can run workflows from fork pull requests. By default, workflows will use a `GITHUB_TOKEN` with read-only permission, with no access to secrets.
+* **Send write tokens to workflows from pull requests**. Workflows will use a `GITHUB_TOKEN` with write permission.
+* **Send secrets to workflows from pull requests**. All secrets are available to the pull request.
+* **Require approval for fork pull request workflows**. Workflows on pull requests from collaborators without write permission will require approval from someone with write permission before they will run.
 
 If a policy is enabled for an enterprise, the policy can be selectively disabled in individual organizations or repositories. If a policy is disabled for an enterprise, individual organizations or repositories cannot enable it.
 
-{% data reusables.actions.private-repository-forks-options %}
+## Workflow permissions
 
-{% data reusables.enterprise-accounts.access-enterprise %}
-{% data reusables.enterprise-accounts.policies-tab %}
-{% data reusables.enterprise-accounts.actions-tab %}
-{% data reusables.actions.private-repository-forks-configure %}
+In the "Workflow permissions" section, you can set the **default** permissions granted to the `GITHUB_TOKEN`.
 
-{% ifversion ghec or ghes %}
+* **Read and write permissions:** The default permissions for the `GITHUB_TOKEN` depend on when the enterprise or organization was created:
 
-## Enforcing a policy for workflow permissions in your enterprise
+  * **Created on or after February 2, 2023** – Defaults to **read-only** access for all scopes.
+  * **Created before February 2, 2023** – Defaults to **read and write** access for all scopes.
 
-{% data reusables.actions.workflow-permissions-intro %}
+* **Read repository contents and packages permissions:** By default, `GITHUB_TOKEN` has only read access for the `contents` and `packages` scopes. The more permissive setting cannot be chosen as the default for individual organizations or repositories.
 
-You can set the default permissions for the `GITHUB_TOKEN` in the settings for your enterprise, organizations, or repositories. If you choose a restricted option as the default in your enterprise settings, this prevents the more permissive setting being chosen in the organization or repository settings.
+Anyone with write access to a repository can still modify the permissions granted to the `GITHUB_TOKEN` for a specific workflow, by editing the `permissions` key in the workflow file.
 
-{% data reusables.actions.workflow-permissions-modifying %}
-
-### Configuring the default `GITHUB_TOKEN` permissions
-
-{% ifversion actions-default-workflow-permissions-restrictive %}
-By default, when you create a new enterprise, `GITHUB_TOKEN` only has read access for the `contents` and `packages` scopes.
-{% endif %}
-
-{% data reusables.enterprise-accounts.access-enterprise %}
-{% data reusables.enterprise-accounts.policies-tab %}
-{% data reusables.enterprise-accounts.actions-tab %}
-{% data reusables.actions.workflows.github-token-access %}
-1. Click **Save** to apply the settings.
-
-{% ifversion allow-actions-to-approve-pr-with-ent-repo %}
-
-### Preventing {% data variables.product.prodname_actions %} from creating or approving pull requests
-
-{% data reusables.actions.workflow-pr-approval-permissions-intro %}
-
-{% ifversion actions-default-workflow-permissions-restrictive %}
-By default, when you create a new enterprise, workflows are not allowed to create or approve pull requests.
-{% endif %}
-
-{% data reusables.enterprise-accounts.access-enterprise %}
-{% data reusables.enterprise-accounts.policies-tab %}
-{% data reusables.enterprise-accounts.actions-tab %}
-1. Under "Workflow permissions", use the **Allow GitHub Actions to create and approve pull requests** setting to configure whether `GITHUB_TOKEN` can create and approve pull requests.
-1. Click **Save** to apply the settings.
-
-{% endif %}
-{% endif %}
-
-{% ifversion actions-cache-policy-apis %}
-
-## Enforcing a policy for cache storage in your enterprise
-
-{% data reusables.actions.cache-default-size %} {% data reusables.actions.cache-eviction-process %}
-
-However, you can set an enterprise policy to customize both the default total cache size for each repository, as well as the maximum total cache size allowed for a repository. For example, you might want the default total cache size for each repository to be 5 GB, but also allow {% ifversion actions-cache-admin-ui %}organization owners and{% endif %} repository administrators to configure a total cache size up to 15 GB if necessary.
-
-{% ifversion actions-cache-admin-ui %}Organization owners can set a lower total cache size that applies to each repository in their organization. {% endif %}People with admin access to a repository can set a total cache size for their repository up to the maximum cache size allowed by the enterprise {% ifversion actions-cache-admin-ui %}or organization{% endif %} policy setting.
-
-{% ifversion actions-cache-admin-ui %}
-
-{% data reusables.enterprise-accounts.access-enterprise %}
-{% data reusables.enterprise-accounts.policies-tab %}
-{% data reusables.enterprise-accounts.actions-tab %}
-1. In the "Artifact, log, and cache settings" section, under **Maximum cache size limit**, enter a value, then click **Save** to apply the setting.
-1. In the "Artifact, log, and cache settings" section, under **Default cache size limit**, enter a value, then click **Save** to apply the setting.
-
-{% endif %}
-{% endif %}
+**Allow GitHub Actions to create and approve pull requests** is disabled by default. If you enable this setting, `GITHUB_TOKEN` can create and approve pull requests.

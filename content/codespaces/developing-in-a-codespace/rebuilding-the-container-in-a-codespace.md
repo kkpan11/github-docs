@@ -1,16 +1,16 @@
 ---
 title: Rebuilding the container in a codespace
-intro: 'You can rebuild the dev container of a codespace you are working in to apply configuration changes. From time to time, you may want to perform a full rebuild.'
+intro: You can rebuild the dev container of a codespace you are working in to apply configuration changes. From time to time, you may want to perform a full rebuild.
 versions:
   fpt: '*'
   ghec: '*'
-type: how_to
-topics:
-  - Codespaces
 shortTitle: Rebuilding a container
 redirect_from:
   - /codespaces/codespaces-reference/performing-a-full-rebuild-of-a-container
   - /codespaces/developing-in-codespaces/rebuilding-the-container-in-a-codespace
+contentType: how-tos
+category:
+  - Write code in a codespace
 ---
 
 ## About rebuilding the dev container
@@ -53,7 +53,7 @@ If you want to preserve files outside the `/workspaces` directory over a rebuild
 ```json
 {
     "image": "mcr.microsoft.com/devcontainers/base:alpine",
-    "postCreateCommand": ".devcontainer/postCreate.sh"
+    "postCreateCommand": "chmod +x .devcontainer/postCreate.sh && .devcontainer/postCreate.sh"
 }
 ```
 
@@ -66,4 +66,4 @@ ln -sf $PWD/.devcontainer/config $HOME/config && set +x
 
 ## Further reading
 
-* "[AUTOTITLE](/codespaces/setting-up-your-project-for-codespaces/adding-a-dev-container-configuration/introduction-to-dev-containers)"
+* [AUTOTITLE](/codespaces/setting-up-your-project-for-codespaces/adding-a-dev-container-configuration/introduction-to-dev-containers)

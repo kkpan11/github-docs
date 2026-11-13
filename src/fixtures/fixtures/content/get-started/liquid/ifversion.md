@@ -1,11 +1,11 @@
 ---
 title: Ifversion liquid tag
-intro: 'Tests functionality of `ifversion` and its operators {% ifversion not fpt %}(not on fpt){% else %}(on fpt){% endif %}'
+intro: 'Tests functionality of `ifversion` and its operators {% ifversion not fpt %}(not on fpt){% else %}(on fpt){% endif %} {% ifversion ghes %}(bare ghes){% else %}(bare not ghes){% endif %}'
 versions:
   fpt: '*'
   ghes: '*'
   ghec: '*'
-type: how_to
+contentType: how-tos
 ---
 
 ## ifversion without operators
@@ -36,7 +36,7 @@ condition-e
   too tied to the past.
   You can type "3.9" if you want, but that version is only working right
   now/today and will eventually break tests as the values in
-  `enterprise-server-releases.js` change over time.
+  `enterprise-server-releases.ts` change over time.
 -->
 
 {% ifversion ghes > __GHES_DEPRECATED__[0] %}

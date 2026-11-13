@@ -3,12 +3,10 @@ title: Identifying audit log events performed by an access token
 shortTitle: Identify events by token
 intro: 'You can identify the actions performed by a specific token in your enterprise.'
 versions:
-  feature: token-audit-log
-topics:
-  - Organizations
-  - Authentication
-  - OAuth apps
-  - GitHub Apps
+  ghes: '*'
+  ghec: '*'
+category:
+  - Monitor and audit your enterprise
 ---
 
 ## About token data in the audit log for an enterprise
@@ -28,6 +26,14 @@ Your enterprise's audit log contains an event for each action that a user or int
 {% data reusables.audit_log.searching-for-associated-events %}
 
 ### Generating a SHA-256 hash value for a token
+
+{% ifversion enterprise-token-inventory %}
+
+If you do not have the token value, export your enterprise credential inventory. You can copy the `hashed_token` value from the CSV and use it in the same audit log search. The export also provides `credential_id` and SSH key `fingerprint` values that you can compare with authentication metadata in audit log events.
+
+For more information, see [AUTOTITLE](/admin/managing-iam/respond-to-incidents/reviewing-credentials-in-your-enterprise).
+
+{% endif %}
 
 {% data reusables.audit_log.generating-hash-for-a-token %}
 
@@ -49,7 +55,7 @@ curl --header "Accept: application/vnd.github+json" --header "Authorization: Bea
 
 ### Identifying Git events
 
-{% data reusables.audit_log.you-can-identify-git-events %} For more information, see "[AUTOTITLE](/admin/monitoring-activity-in-your-enterprise/reviewing-audit-logs-for-your-enterprise/exporting-audit-log-activity-for-your-enterprise#exporting-git-events-data)."
+{% data reusables.audit_log.you-can-identify-git-events %} For more information, see [AUTOTITLE](/admin/monitoring-activity-in-your-enterprise/reviewing-audit-logs-for-your-enterprise/exporting-audit-log-activity-for-your-enterprise#exporting-git-events-data).
 
 {% data reusables.audit_log.authentication-metadata-git-events-release-phase %}
 
@@ -57,7 +63,7 @@ curl --header "Accept: application/vnd.github+json" --header "Authorization: Bea
 
 ## Further reading
 
-* "[AUTOTITLE](/admin/monitoring-activity-in-your-enterprise/reviewing-audit-logs-for-your-enterprise/using-the-audit-log-api-for-your-enterprise)"
+* [AUTOTITLE](/admin/monitoring-activity-in-your-enterprise/reviewing-audit-logs-for-your-enterprise/using-the-audit-log-api-for-your-enterprise)
 {%- ifversion ghec %}
-* "[AUTOTITLE](/organizations/keeping-your-organization-secure/managing-security-settings-for-your-organization/identifying-audit-log-events-performed-by-an-access-token)"
+* [AUTOTITLE](/organizations/keeping-your-organization-secure/managing-security-settings-for-your-organization/identifying-audit-log-events-performed-by-an-access-token)
 {%- endif %}

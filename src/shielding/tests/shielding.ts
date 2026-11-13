@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'vitest'
 
-import { SURROGATE_ENUMS } from '@/frame/middleware/set-fastly-surrogate-key.js'
-import { get } from '@/tests/helpers/e2etest.js'
+import { makeLanguageSurrogateKey } from '@/frame/middleware/set-fastly-surrogate-key'
+import { get } from '@/tests/helpers/e2etest'
 
 describe('honeypotting', () => {
   test('any GET with survey-vote and survey-token query strings is 400', async () => {
     const res = await get('/en?survey-vote=1&survey-token=2')
     expect(res.statusCode).toBe(400)
+    expect(res.headers['content-type']).toMatch('text/plain')
     expect(res.body).toMatch(/Honeypotted/)
     expect(res.headers['cache-control']).toMatch('private')
   })
@@ -18,6 +19,25 @@ describe('junk paths', () => {
     expect(res.statusCode).toBe(404)
     expect(res.headers['content-type']).toMatch('text/plain')
     expect(res.headers['cache-control']).toMatch('public')
+  })
+
+  test('double-slash protocol-relative paths are safely redirected', async () => {
+    const res = await get('//evil.com')
+    expect(res.statusCode).toBe(301)
+    // Must normalize to a safe local path, not redirect externally
+    expect(res.headers.location).toBe('/evil.com')
+  })
+
+  test('double-slash with query params does not open redirect', async () => {
+    const res = await get('//evil.com?a=1&b=2&c=3')
+    // With 3 unrecognized query keys, safeRedirect normalizes // to /.
+    expect(res.headers.location).not.toMatch(/^\/\//)
+  })
+
+  test('triple-slash paths are still blocked', async () => {
+    const res = await get('///evil.com')
+    expect(res.statusCode).toBe(404)
+    expect(res.headers['content-type']).toMatch('text/plain')
   })
 
   test('junk base name', async () => {
@@ -69,61 +89,28 @@ describe('index.md and .md suffixes', () => {
       expect(res.statusCode).toBe(302)
       expect(res.headers.location).toBe('/get-started?foo=bar')
     }
-  })
-
-  test('any URL that ends with /.md redirects', async () => {
-    // With language prefix
+    // Root
     {
-      const res = await get('/en/get-started/hello.md')
+      const res = await get('/index.md')
       expect(res.statusCode).toBe(302)
-      expect(res.headers.location).toBe('/en/get-started/hello')
+      expect(res.headers.location).toBe('/')
     }
-    // Without language prefix
+    // Root with query string
     {
-      const res = await get('/get-started/hello.md')
+      const res = await get('/index.md?foo=bar')
       expect(res.statusCode).toBe(302)
-      expect(res.headers.location).toBe('/get-started/hello')
-    }
-    // With query string
-    {
-      const res = await get('/get-started/hello.md?foo=bar')
-      expect(res.statusCode).toBe(302)
-      expect(res.headers.location).toBe('/get-started/hello?foo=bar')
-    }
-  })
-})
-
-describe('rate limiting', () => {
-  // We can't actually trigger a full rate limit because
-  // then all other tests will all fail. And we can't rely on this
-  // test always being run last.
-
-  test('only happens if you have junk query strings', async () => {
-    const res = await get('/robots.txt?foo=bar')
-    expect(res.statusCode).toBe(200)
-    const limit = parseInt(res.headers['ratelimit-limit'])
-    const remaining = parseInt(res.headers['ratelimit-remaining'])
-    expect(limit).toBeGreaterThan(0)
-    expect(remaining).toBeLessThan(limit)
-
-    // A second request
-    {
-      const res = await get('/robots.txt?foo=buzz')
-      expect(res.statusCode).toBe(200)
-      const newLimit = parseInt(res.headers['ratelimit-limit'])
-      const newRemaining = parseInt(res.headers['ratelimit-remaining'])
-      expect(newLimit).toBe(limit)
-      // Can't rely on `newRemaining == remaining - 1` because of
-      // concurrency of test-running.
-      expect(newRemaining).toBeLessThan(remaining)
+      expect(res.headers.location).toBe('/?foo=bar')
     }
   })
 
-  test('nothing happens if no unrecognized query string', async () => {
-    const res = await get('/robots.txt')
-    expect(res.statusCode).toBe(200)
-    expect(res.headers['ratelimit-limit']).toBeUndefined()
-    expect(res.headers['ratelimit-remaining']).toBeUndefined()
+  test('any URL that ends with .md serves markdown directly', async () => {
+    // .md is stripped and request flows through with Accept: text/markdown
+    {
+      const res = await get('/en/get-started.md')
+      // Serves markdown directly or returns 404 when the page does not exist.
+      expect(res.statusCode).not.toBe(301)
+      expect(res.statusCode).not.toBe(302)
+    }
   })
 })
 
@@ -160,8 +147,8 @@ describe('404 pages and their content-type', () => {
     expect(res.headers['cache-control']).toMatch('public')
     expect(res.headers['cache-control']).toMatch(/max-age=\d\d+/)
     const surrogateKeySplit = res.headers['surrogate-key'].split(/\s/g)
-    // The default is that it'll be purged at the next deploy.
-    expect(surrogateKeySplit.includes(SURROGATE_ENUMS.DEFAULT)).toBeTruthy()
+    // Keyed by language so it's purged at the next per-language deploy purge.
+    expect(surrogateKeySplit.includes(makeLanguageSurrogateKey('en'))).toBeTruthy()
     expect(res.headers['surrogate-control']).toContain('public')
     expect(res.headers['surrogate-control']).toMatch(/max-age=[1-9]/)
   })

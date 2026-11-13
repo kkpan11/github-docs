@@ -1,9 +1,9 @@
-import React from 'react'
-import cx from 'classnames'
+import { Link } from '@/frame/components/Link'
+import type { TocItem } from '@/landings/types'
+import { RenderedHTML } from '@/frame/components/ui/RenderedHTML/RenderedHTML'
+import { clsx } from 'clsx'
 
-import { ActionList } from '@primer/react'
-import { Link } from 'src/frame/components/Link'
-import type { TocItem } from 'src/landings/components/ProductLandingContext'
+import styles from './TableOfContents.module.scss'
 
 type Props = {
   items: Array<TocItem>
@@ -13,10 +13,7 @@ export const TableOfContents = (props: Props) => {
   const { items, variant = 'expanded' } = props
 
   return (
-    <div
-      data-testid="table-of-contents"
-      className={cx(variant === 'compact' ? 'list-style-outside pl-2' : '')}
-    >
+    <div data-testid="table-of-contents">
       {variant === 'expanded' &&
         items.map((item) => {
           const { fullPath: href, title, intro } = item
@@ -28,50 +25,48 @@ export const TableOfContents = (props: Props) => {
               className="pt-4 pb-3 f4 d-list-item width-full list-style-none border-bottom"
             >
               <h2 className="py-1 h4">
-                <Link href={href} className="color-fg-accent">
+                <Link href={href} className={styles.linkAccent}>
                   {title}
                 </Link>
               </h2>
               {intro && (
-                <div className="f4 color-fg-muted" dangerouslySetInnerHTML={{ __html: intro }} />
+                <RenderedHTML as="div" className={clsx('f4', styles.textMuted)} html={intro} />
               )}
             </div>
           )
         })}
 
       {variant === 'compact' && (
-        <ActionList>
-          {items.map((item) => {
+        <ul role="list" className="list-style-none f4">
+          {items.map((item, index) => {
             const { fullPath, title, childTocItems } = item
+            const filteredChildren = (childTocItems || []).filter(Boolean)
             return (
-              <React.Fragment key={fullPath}>
-                <ActionList.Item className="f4 color-fg-accent d-list-item d-block width-full text-underline">
-                  <Link href={fullPath}>{title}</Link>
-                </ActionList.Item>
-                {(childTocItems || []).length > 0 && (
-                  <li className="f4 color-fg-accent d-list-item d-block width-full text-underline">
-                    <ActionList
-                      className={cx(
-                        variant === 'compact' ? 'list-style-circle pl-5' : 'list-style-none',
-                      )}
-                    >
-                      {(childTocItems || []).filter(Boolean).map((childItem) => {
-                        return (
-                          <ActionList.Item
-                            key={childItem.fullPath}
-                            className="f4 color-fg-accent d-list-item d-block width-full text-underline"
-                          >
-                            <Link href={childItem.fullPath}>{childItem.title}</Link>
-                          </ActionList.Item>
-                        )
-                      })}
-                    </ActionList>
-                  </li>
+              <li key={fullPath} role="listitem" className="mb-2">
+                <Link href={fullPath} className="text-underline mb-2 d-block">
+                  {title}
+                  <span className="visually-hidden">
+                    , {index + 1} of {items.length}
+                  </span>
+                </Link>
+                {filteredChildren.length > 0 && (
+                  <ul role="list" className="pl-4 list-style-none">
+                    {filteredChildren.map((childItem, childIndex) => (
+                      <li key={childItem.fullPath} role="listitem" className="mb-2">
+                        <Link href={childItem.fullPath} className="text-underline">
+                          {childItem.title}
+                          <span className="visually-hidden">
+                            , {childIndex + 1} of {filteredChildren.length}
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
                 )}
-              </React.Fragment>
+              </li>
             )
           })}
-        </ActionList>
+        </ul>
       )}
     </div>
   )

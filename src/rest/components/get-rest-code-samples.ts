@@ -1,30 +1,29 @@
 import { parseTemplate } from 'url-template'
 import { stringify } from 'javascript-stringify'
 
-import type { CodeSample, Operation } from 'src/rest/components/types'
-import { type VersionItem } from 'src/frame/components/context/MainContext'
+import type { BodyParameter, ChildParameter, CodeSample, Operation } from '@/rest/components/types'
+import { type VersionItem } from '@/frame/components/context/MainContext'
+import {
+  getCurlBodyArguments,
+  escapeShellValue,
+  needsExplicitContentTypeHeader,
+} from '@/rest/lib/curl-body-arguments'
 
-type CodeExamples = Record<string, any>
+function shouldOmitAuthentication(operation: Operation, currentVersion: string): boolean {
+  // Only explicitly permissionless operations can omit auth.
+  if (!operation?.progAccess?.allowPermissionlessAccess) {
+    return false
+  }
 
-// If the content type is application/x-www-form-urlencoded the format of
-// the shell example is --data-urlencode param1=value1 --data-urlencode param2=value2
-// For example, this operation:
-// https://docs.github.com/en/enterprise/rest/reference/enterprise-admin#enable-or-disable-maintenance-mode
-const CURL_CONTENT_TYPE_MAPPING: { [key: string]: string } = {
-  'application/x-www-form-urlencoded': '--data-urlencode',
-  'multipart/form-data': '--form',
-  'application/octet-stream': '--data-binary',
+  // Dotcom versions can omit auth; GHES and other versions still require authentication.
+  const isDotcomVersion =
+    currentVersion.startsWith('free-pro-team') || currentVersion.startsWith('enterprise-cloud')
+
+  return isDotcomVersion
 }
-/*
-  Generates a curl example
 
-  For example:
-  curl \
-  -X POST \
-  -H "Accept: application/vnd.github+json" \
-  https://{hostname}/api/v3/repos/OWNER/REPO/deployments \
-  -d '{"ref":"topic-branch","payload":"{ \"deploy\": \"migrate\" }","description":"Deploy request from hubot"}'
-*/
+type CodeExamples = Record<string, unknown>
+
 export function getShellExample(
   operation: Operation,
   codeSample: CodeSample,
@@ -33,10 +32,24 @@ export function getShellExample(
 ) {
   let contentTypeHeader = ''
 
-  if (codeSample?.request?.contentType === 'application/octet-stream') {
-    contentTypeHeader = '-H "Content-Type: application/octet-stream"'
-  } else if (codeSample?.request?.contentType === 'multipart/form-data') {
-    contentTypeHeader = '-H "Content-Type: multipart/form-data"'
+  if (needsExplicitContentTypeHeader(codeSample?.request?.contentType)) {
+    contentTypeHeader = `-H "Content-Type: ${codeSample.request.contentType}"`
+  }
+
+  const omitAuth = shouldOmitAuthentication(operation, currentVersion)
+
+  // GHES Manage requests need special handling for multipart/form-data and JSON content types.
+  if (operation.subcategory === 'manage-ghes') {
+    // GHES Manage GET operations omit requestBody, so default the content type to JSON.
+    if (operation.verb === 'get') {
+      contentTypeHeader = '-H "Content-Type: application/json"'
+    } else {
+      contentTypeHeader = `-H "Content-Type: ${codeSample?.request?.contentType}"`
+    }
+  }
+
+  if (operation.subcategory === 'inference') {
+    contentTypeHeader = '-H "Content-Type: application/json"'
   }
 
   let requestPath = codeSample?.request?.parameters
@@ -48,30 +61,13 @@ export function getShellExample(
 
   let requestBodyParams = ''
   if (codeSample?.request?.bodyParameters) {
-    requestBodyParams = `-d '${JSON.stringify(codeSample.request.bodyParameters).replace(
-      /'/g,
-      "'\\''",
-    )}'`
-
     const contentType = codeSample.request.contentType
-    if (contentType in CURL_CONTENT_TYPE_MAPPING) {
-      requestBodyParams = ''
-      // Most of the time the example body parameters have a name and value
-      // and are included in an object. But, some cases are a single value
-      // and the type is a string.
-      const { bodyParameters } = codeSample.request
-      if (bodyParameters && typeof bodyParameters === 'object' && !Array.isArray(bodyParameters)) {
-        const paramNames = Object.keys(bodyParameters)
-        paramNames.forEach((elem) => {
-          requestBodyParams = `${requestBodyParams} ${CURL_CONTENT_TYPE_MAPPING[contentType]} '${elem}=${bodyParameters[elem]}'`
-        })
-      } else {
-        requestBodyParams = `${CURL_CONTENT_TYPE_MAPPING[contentType]} "${bodyParameters}"`
-      }
-    }
+    requestBodyParams = getCurlBodyArguments(codeSample.request.bodyParameters, contentType).join(
+      ' ',
+    )
   }
 
-  let authHeader = '-H "Authorization: Bearer <YOUR-TOKEN>"'
+  let authHeader = omitAuth ? '' : '-H "Authorization: Bearer <YOUR-TOKEN>"'
   let apiVersionHeader =
     allVersions[currentVersion].apiVersions.length > 0 &&
     allVersions[currentVersion].latestApiVersion
@@ -79,18 +75,24 @@ export function getShellExample(
       : ''
   let acceptHeader = `-H "Accept: ${getAcceptHeader(codeSample)}"`
   let urlArg = `${operation.serverUrl}${requestPath}`
-  // If the `requestPath` contains a `?` character, if you need to escape
-  // the whole URL otherwise, when you paste it into your terminal, it
-  // will fail because the `?` is a bash control character.
+  // Quote URLs containing ? so shells don't expand it as a glob.
   if (requestPath.includes('?')) {
     urlArg = `"${urlArg}"`
   }
 
-  // Overwrite curl examples since the github enterprise related apis are seperate from the dotcom api standards
+  // Management Console and GHES Manage APIs replace dotcom auth, API version, and Accept headers.
   if (operation.subcategory === 'management-console' || operation.subcategory === 'manage-ghes') {
     authHeader = '-u "api_key:your-password"'
     apiVersionHeader = ''
     acceptHeader = acceptHeader === `-H "Accept: application/vnd.github+json"` ? '' : acceptHeader
+  }
+
+  if (
+    omitAuth &&
+    operation.subcategory !== 'management-console' &&
+    operation.subcategory !== 'manage-ghes'
+  ) {
+    authHeader = ''
   }
 
   if (operation?.progAccess?.basicAuth) {
@@ -109,27 +111,20 @@ export function getShellExample(
   return `curl -L \\\n  ${args.join(' \\\n  ')}`
 }
 
-/*
-  Generates a GitHub CLI example
-
-  For example:
-   gh api \
-    -X POST \
-    -H "Accept: application/vnd.github+json" \
-    /repos/OWNER/REPO/deployments \
-    -f ref,topic-branch=0,payload,{ "deploy": "migrate" }=1,description,Deploy request from hubot=2
-*/
+// Return undefined when basicAuth is set because GitHub CLI does not support basic auth.
 export function getGHExample(
   operation: Operation,
   codeSample: CodeSample,
   currentVersion: string,
   allVersions: Record<string, VersionItem>,
 ) {
-  // Basic authentication is not supported by GH CLI
   if (operation?.progAccess?.basicAuth) return
 
   const defaultAcceptHeader = getAcceptHeader(codeSample)
-  const hostname = operation.serverUrl !== 'https://api.github.com' ? '--hostname HOSTNAME' : ''
+  // Scalar bodies are file uploads that must go to the upload server URL, not the API host.
+  const isFileUpload = typeof codeSample.request.bodyParameters === 'string'
+  const hostname =
+    !isFileUpload && operation.serverUrl !== 'https://api.github.com' ? '--hostname HOSTNAME' : ''
 
   let requestPath = codeSample?.request?.parameters
     ? parseTemplate(operation.requestPath).expand(codeSample.request.parameters)
@@ -143,22 +138,45 @@ export function getGHExample(
 
   const requiredQueryParams = getRequiredQueryParamsPath(operation, codeSample)
   requestPath += requiredQueryParams ? `?${requiredQueryParams}` : ''
+  if (isFileUpload) {
+    requestPath = `${operation.serverUrl}${requestPath}`
+  }
+  // Quote upload URLs and paths containing ? so shells don't expand it as a glob or split on &.
+  if (isFileUpload || requestPath.includes('?')) {
+    requestPath = `"${requestPath}"`
+  }
 
   let requestBodyParams = ''
-  // Most of the time the example body parameters have a name and value
-  // and are included in an object. But, some cases are a single value
-  // and the type is a string.
+  // Request bodies can be named object parameters or a single scalar value.
   const { bodyParameters } = codeSample.request
   if (bodyParameters) {
-    // There should not be a case in a REST API where only an array is sent
-    if (Array.isArray(bodyParameters)) {
-      throw new Error('Array of arrays found in body parameters')
-    }
-
     if (typeof bodyParameters === 'object') {
-      requestBodyParams += handleObjectParameter(bodyParameters as NestedObjectParameter)
+      // Gist create and update examples use --input for nested file structures.
+      const isGistEndpoint =
+        !Array.isArray(bodyParameters) &&
+        operation.requestPath.includes('/gists') &&
+        (operation.title === 'Create a gist' || operation.title === 'Update a gist')
+
+      // Use --input for top-level arrays or nested arrays because gh -f and -F cannot encode them.
+      const hasArrays = hasNestedArrays(bodyParameters as NestedObjectParameter)
+      if (hasArrays || isGistEndpoint) {
+        const types = getBodyParameterTypes(operation.bodyParameters || [])
+        const jsonBody = JSON.stringify(
+          bodyParameters,
+          (key: string, value: unknown) => {
+            const type = key ? types.get(key) : undefined
+            return type ? coerceToSchemaType(value, type) : value
+          },
+          2,
+        ).replace(/'/g, "'\\''")
+        requestBodyParams = `--input - <<< '${jsonBody}'`
+      } else {
+        requestBodyParams += handleObjectParameter(bodyParameters as NestedObjectParameter)
+      }
+    } else if (isFileUpload) {
+      requestBodyParams = `--input ${(bodyParameters as string).replace(/^@/, '')}`
     } else {
-      requestBodyParams += handleSingleParameter('', bodyParameters)
+      requestBodyParams += handleSingleParameter('', bodyParameters as NestedObjectParameter)
     }
   }
 
@@ -166,6 +184,8 @@ export function getGHExample(
     operation.verb !== 'get' && `--method ${operation.verb.toUpperCase()}`,
     `-H "Accept: ${defaultAcceptHeader}"`,
     apiVersionHeader,
+    isFileUpload &&
+      `-H "Content-Type: ${codeSample.request.contentType || 'application/octet-stream'}"`,
     hostname,
     requestPath,
     requestBodyParams,
@@ -183,6 +203,47 @@ type NestedObjectParameter =
   | { [key: string]: NestedObjectParameter }
   | NestedObjectParameter[]
 
+function hasNestedArrays(obj: NestedObjectParameter): boolean {
+  if (Array.isArray(obj)) {
+    return true
+  }
+  if (typeof obj === 'object' && obj !== null) {
+    for (const value of Object.values(obj)) {
+      if (hasNestedArrays(value)) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+// Map each body parameter name to its schema type so the --input JSON keeps string-typed fields as strings.
+// The replacer sees only key names, so a name used with different types maps to undefined and stays unchanged.
+function getBodyParameterTypes(
+  params: Array<BodyParameter | ChildParameter>,
+  types = new Map<string, string | undefined>(),
+): Map<string, string | undefined> {
+  for (const param of params) {
+    if (param.childParamsGroups?.length) {
+      getBodyParameterTypes(param.childParamsGroups, types)
+    } else if (types.has(param.name) && types.get(param.name) !== param.type) {
+      types.set(param.name, undefined)
+    } else {
+      types.set(param.name, param.type)
+    }
+  }
+  return types
+}
+
+// Example values are stored as strings, so convert only when the schema type is numeric or boolean.
+function coerceToSchemaType(value: unknown, type: string): unknown {
+  if (Array.isArray(value)) return value.map((item) => coerceToSchemaType(item, type))
+  if (typeof value !== 'string' || type.includes('string')) return value
+  if (/^\d+$/.test(value) && /integer|number/.test(type)) return Number(value)
+  if (type.includes('boolean') && (value === 'true' || value === 'false')) return value === 'true'
+  return value
+}
+
 function handleSingleParameter(
   key: string,
   value: NestedObjectParameter,
@@ -190,17 +251,19 @@ function handleSingleParameter(
 ): string {
   let cliLine = ''
   const keyString = `${transformKey(key)}`
-  // When only a value is passed to bodyParameters we don't show the '=' since there isn't a key
+  // Scalar bodyParameters omit = because they have no key.
   let separator = '='
   if (!key) {
     separator = ''
   }
   if (typeof value === 'string') {
-    cliLine += ` -f "${keyString}${separator}${value}"`
+    const escapedValue = escapeShellValue(value)
+    cliLine += ` -f '${keyString}${separator}${escapedValue}'`
   } else if (typeof value === 'number' || typeof value === 'boolean' || value === null) {
     cliLine += ` -F "${keyString}${separator}${value}"`
   } else if (Array.isArray(value)) {
-    for (const param of value) {
+    for (let i = 0; i < value.length; i++) {
+      const param = value[i]
       if (Array.isArray(param)) {
         throw new Error('Nested arrays are not valid in the bodyParameters')
       }
@@ -208,11 +271,12 @@ function handleSingleParameter(
       if (typeof param === 'object' && param !== null) {
         cliLine += handleObjectParameter(
           param,
-          (nextKey: string): string => `${keyString}[]${nextKey}`,
+          (nextKey: string): string => `${keyString}[${i}]${nextKey}`,
         )
       } else {
-        // Transform key in this case needs to account for the `key` being passed in
-        cliLine += handleSingleParameter(key, param, (nextKey: string): string => `${nextKey}[]`)
+        // The transform has to fold the array index into the passed-in key.
+        const arrayTransform = () => `${transformKey(key)}[${i}]`
+        cliLine += handleSingleParameter(key, param, arrayTransform)
       }
     }
   } else if (typeof value === 'object') {
@@ -221,6 +285,8 @@ function handleSingleParameter(
   return cliLine
 }
 
+// handleObjectParameter rejects nested arrays because form-field encoding cannot represent them.
+// It expands arrays of objects into separate -f or -F parameters.
 function handleObjectParameter(
   objectParams: NestedObjectParameter,
   transformKey = startTransformKey,
@@ -228,32 +294,32 @@ function handleObjectParameter(
   let cliLine = ''
   for (const [key, value] of Object.entries(objectParams)) {
     if (Array.isArray(value)) {
-      for (const param of value) {
-        // This isn't valid in a REST context, our REST API should not be designed to take
-        // something like { "letterSegments": [["a", "b", "c"], ["d", "e", "f"]] }
-        // If this is a possibility, we can update the code to handle it
+      for (let i = 0; i < value.length; i++) {
+        const param = value[i]
         if (Array.isArray(param)) {
           throw new Error('Nested arrays are not valid in the bodyParameters')
         }
 
         if (typeof param === 'object' && param !== null) {
-          // When an array of objects, we want to display the key and value as two separate parameters
-          // E.g. -F "properties[][property_name]=repo" -F "properties[][value]=docs-internal"
           for (const [nestedKey, nestedValue] of Object.entries(param)) {
             cliLine += handleSingleParameter(
-              `${key}[][${nestedKey}]`,
+              `${key}[${i}][${nestedKey}]`,
               nestedValue as NestedObjectParameter,
               transformKey,
             )
           }
         } else {
-          cliLine += handleSingleParameter(`${key}[]`, param, transformKey)
+          cliLine += handleSingleParameter(
+            key,
+            param,
+            (nextKey: string) => `${transformKey(nextKey)}[${i}]`,
+          )
         }
       }
     } else if (typeof value === 'object' && value !== null) {
       cliLine += handleObjectParameter(
         value as NestedObjectParameter,
-        (nextKey: string) => `${key}[${nextKey}]`,
+        (nextKey: string) => `${transformKey(key)}[${nextKey}]`,
       )
     } else {
       cliLine += handleSingleParameter(key, value, transformKey)
@@ -262,35 +328,25 @@ function handleObjectParameter(
   return cliLine
 }
 
-/*
-  Generates an octokit.js example
-
-  For example:
-  await octokit.request('POST /repos/{owner}/{repo}/deployments'{
-    "owner": "OWNER",
-    "repo": "REPO",
-    "ref": "topic-branch",
-    "payload": "{ \"deploy\": \"migrate\" }",
-    "description": "Deploy request from hubot"
-  })
-
-*/
+// getJSExample appends query params to mutating URL templates because Octokit only
+// auto-sends them for GET and HEAD, for example:
+// POST /repos/{owner}/{repo}/releases/{release_id}/assets{?name,label}
 export function getJSExample(
   operation: Operation,
   codeSample: CodeSample,
   currentVersion: string,
   allVersions: Record<string, VersionItem>,
 ) {
+  const omitAuth = shouldOmitAuthentication(operation, currentVersion)
   const parameters: { [key: string]: string | object } = {}
 
   if (codeSample.request) {
     Object.assign(parameters, codeSample.request.parameters)
-    // Most of the time the example body parameters have a name and value
-    // and are included in an object. But, some cases are a single value
-    // and the type is a string.
+    // Octokit sends scalar bodies and top-level arrays through the data option.
     if (
       codeSample.request.bodyParameters &&
-      typeof codeSample.request.bodyParameters !== 'object'
+      (typeof codeSample.request.bodyParameters !== 'object' ||
+        Array.isArray(codeSample.request.bodyParameters))
     ) {
       parameters.data = codeSample.request.bodyParameters
     } else {
@@ -298,13 +354,15 @@ export function getJSExample(
     }
   }
 
+  // Code examples only carry path params, so required query params need explicit values.
+  for (const [name, value] of Object.entries(getRequiredQueryParams(operation, codeSample))) {
+    if (!Object.hasOwn(parameters, name)) {
+      parameters[name] = value
+    }
+  }
+
   let queryParameters = ''
 
-  // Query parameters are set automatically for GET and HEAD requests, we
-  // otherwise have to handle it ourselves for other request methods by adding
-  // the parameters to the request path in URL template format e.g.:
-  //
-  // 'POST /repos/{owner}/{repo}/releases/{release_id}/assets{?name,label}'
   if (
     operation.verb === 'delete' ||
     operation.verb === 'patch' ||
@@ -334,40 +392,23 @@ export function getJSExample(
 
   const comment = `// Octokit.js\n// https://github.com/octokit/core.js#readme\n`
   const authOctokit = `const octokit = new Octokit(${stringify({ auth: 'YOUR-TOKEN' }, null, 2)})\n\n`
+  const unauthenticatedOctokit = `const octokit = new Octokit()\n\n`
   const oauthOctokit = `import { createOAuthAppAuth } from "@octokit/auth-oauth-app"\n\nconst octokit = new Octokit({\n  authStrategy: createOAuthAppAuth,\n  auth:{\n    clientType: 'oauth-app',\n    clientId: '<YOUR_CLIENT ID>',\n    clientSecret: '<YOUR_CLIENT SECRET>'\n  }\n})\n\n`
   const isBasicAuth = operation?.progAccess?.basicAuth
-  const authString = isBasicAuth ? oauthOctokit : authOctokit
+  let authString = isBasicAuth ? oauthOctokit : authOctokit
+
+  // Permissionless endpoints use unauthenticated Octokit.
+  if (omitAuth) {
+    authString = unauthenticatedOctokit
+  }
 
   return `${comment}${authString}await octokit.request('${operation.verb.toUpperCase()} ${
     operation.requestPath
   }${queryParameters}', ${stringify(parameters, null, 2)})`
 }
 
-// Every code example parameter object can be slightly different depending on the operation. For e.g. for Packages it's something like this:
-// [
-//  {
-//    "id": 197,
-//    "name": "hello_docker",
-//    "package_type": "container",
-//  },
-//  {
-//    "id": 198,
-//    "name": "goodbye_docker",
-//    "package_type": "container",
-//  }
-// ]
-// But for Actions cache it's something like this:
-// {
-//  "total_count": 1,
-//  "actions_caches": [
-//      {
-//          "id": 505,
-//          "ref": "refs/heads/main",
-//          "key": "Linux-node-958aff96db2d75d67787d1e634ae70b659de937b",
-//      }
-//  ]
-// }
-// We need to find the matching key so this is using JSON.stringify to handle the "recursion" to search for the matching key.
+// Package responses can be arrays while Actions cache responses nest items under actions_caches.
+// JSON.stringify traversal finds the matching required query key in either shape.
 function findMatchingQueryKey(exampleObj: CodeExamples | CodeExamples[], matchKey: string) {
   let match: string | null = null
   JSON.stringify(exampleObj, (_, nestedValue) => {
@@ -381,22 +422,29 @@ function findMatchingQueryKey(exampleObj: CodeExamples | CodeExamples[], matchKe
   return match
 }
 
-function getRequiredQueryParamsPath(operation: Operation, codeSample: CodeSample) {
-  const requiredQueryParams = new URLSearchParams()
+function getRequiredQueryParams(operation: Operation, codeSample: CodeSample) {
+  const requiredQueryParams: Record<string, string> = {}
   for (const param of operation.parameters) {
     if (param.in === 'query' && param.required === true) {
       const codeExamples = codeSample.response?.example
       const match = findMatchingQueryKey(codeExamples, param.name)
-      requiredQueryParams.append(param.name, match || param.name.toUpperCase())
+      requiredQueryParams[param.name] = match || param.name.toUpperCase()
     }
   }
 
-  return requiredQueryParams.toString()
+  return requiredQueryParams
 }
 
-function getAcceptHeader(codeSample: CodeSample) {
-  // This allows us to display custom media types like application/sarif+json
-  return codeSample?.response?.contentType?.includes('+json')
-    ? codeSample.response.contentType
-    : 'application/vnd.github+json'
+export function getRequiredQueryParamsPath(operation: Operation, codeSample: CodeSample) {
+  return new URLSearchParams(getRequiredQueryParams(operation, codeSample)).toString()
+}
+
+export function getAcceptHeader(codeSample: CodeSample) {
+  const contentType = codeSample?.response?.contentType
+
+  if (!contentType || contentType === 'application/json') {
+    return 'application/vnd.github+json'
+  }
+
+  return contentType
 }

@@ -1,12 +1,20 @@
-/* eslint-disable camelcase */
-import Cookies from 'src/frame/components/lib/cookies'
+import Cookies from '@/frame/components/lib/cookies'
+import {
+  ANALYTICS_ENABLED,
+  ANNOTATE_MODE_COOKIE_NAME,
+  DOCS_EVENTS_COOKIE_NAME,
+  TOOL_PREFERRED_COOKIE_NAME,
+  OS_PREFERRED_COOKIE_NAME,
+} from '@/frame/lib/constants'
 import { parseUserAgent } from './user-agent'
 import { Router } from 'next/router'
-import { isLoggedIn } from 'src/frame/components/hooks/useHasAccount'
+import { isLoggedIn } from '@/frame/components/hooks/useHasAccount'
+import { getExperimentVariationForContext } from './experiments/experiment'
+import { EventType, EventPropsByType } from '../types'
+import { isHeadless } from './is-headless'
+import { sendHydroAnalyticsEvent, getOctoClientId } from './hydro-analytics'
 
-const COOKIE_NAME = '_docs-events'
-
-const startVisitTime = Date.now()
+const BATCH_INTERVAL = 5000 // Flush queued events every 5 seconds.
 
 let initialized = false
 let cookieValue: string | undefined
@@ -18,8 +26,24 @@ let scrollPosition = 0
 let scrollDirection = 1
 let scrollFlipCount = 0
 let maxScrollY = 0
-let previousPath: string | undefined
+let pageStartTime = Date.now()
+// Navigation timings belong to the full page load, so pages reached by client-side navigation omit them.
+let isFullPageLoad = true
+// document.referrer keeps the landing page's referrer through client-side navigation.
+let pageReferrer: string | undefined
 let hoveredUrls = new Set()
+let eventQueue: Record<string, unknown>[] = []
+// Next cancels a route without its routeChangeComplete, so a cancelled wait resolves with the next route and must not send a page event.
+let pageReadyNavigation = 0
+
+function scheduleNextFlush() {
+  setTimeout(() => {
+    flushQueue()
+    scheduleNextFlush()
+  }, BATCH_INTERVAL)
+}
+
+scheduleNextFlush()
 
 function resetPageParams() {
   sentExit = false
@@ -28,99 +52,33 @@ function resetPageParams() {
   scrollDirection = 1
   scrollFlipCount = 0
   maxScrollY = 0
-  // Don't reset previousPath
+  pageStartTime = Date.now()
+  isFullPageLoad = false
   hoveredUrls = new Set()
 }
 
-// Temporary polyfill for crypto.randomUUID()
-// Necessary for localhost development (doesn't have https://)
-function uuidv4(): string {
+// Use crypto.randomUUID when available; fall back in contexts where the call fails.
+export function uuidv4(): string {
   try {
     return crypto.randomUUID()
-  } catch (err) {
+  } catch {
     // https://stackoverflow.com/a/2117523
-    return (<any>[1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (c: number) =>
-      (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16),
+    return (String([1e7]) + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (c: string) =>
+      (
+        Number(c) ^
+        (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (Number(c) / 4)))
+      ).toString(16),
     )
   }
 }
 
 export function getUserEventsId() {
   if (cookieValue) return cookieValue
-  cookieValue = Cookies.get(COOKIE_NAME)
+  cookieValue = Cookies.get(DOCS_EVENTS_COOKIE_NAME)
   if (cookieValue) return cookieValue
   cookieValue = uuidv4()
-  Cookies.set(COOKIE_NAME, cookieValue)
+  Cookies.set(DOCS_EVENTS_COOKIE_NAME, cookieValue)
   return cookieValue
-}
-
-export enum EventType {
-  page = 'page',
-  exit = 'exit',
-  link = 'link',
-  hover = 'hover',
-  search = 'search',
-  searchResult = 'searchResult',
-  survey = 'survey',
-  experiment = 'experiment',
-  preference = 'preference',
-  clipboard = 'clipboard',
-  print = 'print',
-}
-
-type SendEventProps = {
-  [EventType.clipboard]: {
-    clipboard_operation: string
-    clipboard_target?: string
-  }
-  [EventType.exit]: {
-    exit_render_duration?: number
-    exit_first_paint?: number
-    exit_dom_interactive?: number
-    exit_dom_complete?: number
-    exit_visit_duration?: number
-    exit_scroll_length?: number
-    exit_scroll_flip?: number
-  }
-  [EventType.experiment]: {
-    experiment_name: string
-    experiment_variation: string
-    experiment_success?: boolean
-  }
-  [EventType.hover]: {
-    hover_url: string
-    hover_samesite?: boolean
-  }
-  [EventType.link]: {
-    link_url: string
-    link_samesite?: boolean
-    link_samepage?: boolean
-    link_container?: string
-  }
-  [EventType.page]: {}
-  [EventType.preference]: {
-    preference_name: string
-    preference_value: string
-  }
-  [EventType.print]: {}
-  [EventType.search]: {
-    search_query: string
-    search_context?: string
-  }
-  [EventType.searchResult]: {
-    search_result_query: string
-    search_result_index: number
-    search_result_total: number
-    search_result_rank: number
-    search_result_url: string
-  }
-  [EventType.survey]: {
-    survey_token?: string // Honeypot, doesn't exist in schema
-    survey_vote: boolean
-    survey_comment?: string
-    survey_email?: string
-    survey_rating?: number
-  }
 }
 
 function getMetaContent(name: string) {
@@ -131,90 +89,110 @@ function getMetaContent(name: string) {
 export function sendEvent<T extends EventType>({
   type,
   version = '1.0.0',
+  eventGroupKey,
+  eventGroupId,
   ...props
 }: {
   type: T
   version?: string
-} & SendEventProps[T]) {
+  eventGroupKey?: string
+  eventGroupId?: string
+} & EventPropsByType[T]) {
   const body = {
     type,
 
     context: {
-      // Primitives
       event_id: uuidv4(),
       user: getUserEventsId(),
       version,
       created: new Date().toISOString(),
       page_event_id: pageEventId,
 
-      // Content information
-      referrer: getReferrer(document.referrer),
-      href: location.href, // full URL
-      hostname: location.hostname, // origin without protocol or port
-      path: location.pathname, // path without search or host
-      search: location.search, // also known as query string
-      hash: location.hash, // also known as anchor
+      referrer: pageReferrer ?? document.referrer,
+      title: document.title,
+      href: location.href,
+      hostname: location.hostname,
+      path: location.pathname,
+      search: location.search,
+      hash: location.hash,
       path_language: getMetaContent('path-language'),
       path_version: getMetaContent('path-version'),
       path_product: getMetaContent('path-product'),
       path_article: getMetaContent('path-article'),
       page_document_type: getMetaContent('page-document-type'),
-      page_type: getMetaContent('page-type'),
+      content_type: getMetaContent('page-content-type'),
+      docs_team_metrics: getMetaContent('docs-team-metrics') || undefined,
       status: Number(getMetaContent('status') || 0),
       is_logged_in: isLoggedIn(),
+      octo_client_id: getOctoClientId(),
 
-      // Device information
-      // os, os_version, browser, browser_version:
+      // Adds os, os_version, browser, and browser_version.
       ...parseUserAgent(),
+      is_headless: isHeadless(),
       viewport_width: document.documentElement.clientWidth,
       viewport_height: document.documentElement.clientHeight,
+      screen_width: window.screen.width,
+      screen_height: window.screen.height,
+      pixel_ratio: window.devicePixelRatio || 1,
+      user_agent: navigator.userAgent,
 
-      // Location information
       timezone: new Date().getTimezoneOffset() / -60,
       user_language: navigator.language,
 
-      // Preference information
-      application_preference: Cookies.get('toolPreferred'),
+      application_preference: Cookies.get(TOOL_PREFERRED_COOKIE_NAME),
       color_mode_preference: getColorModePreference(),
-      os_preference: Cookies.get('osPreferred'),
-      code_display_preference: Cookies.get('annotate-mode'),
+      os_preference: Cookies.get(OS_PREFERRED_COOKIE_NAME),
+      code_display_preference: Cookies.get(ANNOTATE_MODE_COOKIE_NAME),
+
+      experiment_variation:
+        getExperimentVariationForContext(
+          getMetaContent('path-language'),
+          getMetaContent('path-version'),
+        ) || '',
+
+      event_group_key: eventGroupKey,
+      event_group_id: eventGroupId,
     },
 
     ...props,
   }
 
-  const blob = new Blob([JSON.stringify(body)], { type: 'application/json' })
-  const endpoint = '/api/events'
-  try {
-    // Only send the beacon if the feature is not disabled in the user's browser
-    // Even if the function exists, it can still throw an error from the call being blocked
-    navigator?.sendBeacon(endpoint, blob)
-  } catch {
-    console.warn(`sendBeacon to '${endpoint}' failed.`)
+  queueEvent(body)
+
+  // Hydro handles cross-subdomain tracking.
+  if (ANALYTICS_ENABLED) sendHydroAnalyticsEvent(body)
+
+  if (type === EventType.exit) {
+    flushQueue()
   }
 
   return body
 }
 
-// Sometimes using the back button means the internal referrer path is not there,
-// So this fills it in with a JavaScript variable
-function getReferrer(documentReferrer: string) {
-  if (!previousPath) return documentReferrer
+function flushQueue() {
+  if (!eventQueue.length) return
+
+  const endpoint = '/api/events'
+  const eventsBody = JSON.stringify(eventQueue)
+  eventQueue = []
+
   try {
-    // new URL() throws an error if not a valid URL
-    const referrerUrl = new URL(documentReferrer)
-    if (!referrerUrl.pathname || referrerUrl.pathname === '/') {
-      return referrerUrl.origin + previousPath
+    if (ANALYTICS_ENABLED) {
+      navigator.sendBeacon(endpoint, new Blob([eventsBody], { type: 'application/json' }))
     }
-  } catch (e) {}
-  return documentReferrer
+  } catch (err) {
+    console.warn(`sendBeacon to '${endpoint}' failed.`, err)
+  }
+}
+
+function queueEvent(eventBody: Record<string, unknown>) {
+  eventQueue.push(eventBody)
 }
 
 function getColorModePreference() {
-  // color mode is set as attributes on <html>, we'll use that information
-  // along with media query checking rather than parsing the cookie value
-  // set by github.com
-  let color_mode_preference = document.querySelector('html')?.dataset.colorMode
+  // HTML attributes expose the resolved mode and preserve auto preference without parsing cookies.
+  const html = document.querySelector('html')
+  let color_mode_preference = html?.dataset.colorModePreference || html?.dataset.colorMode
 
   if (color_mode_preference === 'auto') {
     if (window.matchMedia('(prefers-color-scheme: light)').matches) {
@@ -238,30 +216,26 @@ function getPerformance() {
     firstContentfulPaint: paint ? paint.startTime / 1000 : undefined,
     domInteractive: nav ? nav.domInteractive / 1000 : undefined,
     domComplete: nav ? nav.domComplete / 1000 : undefined,
-    render: nav ? (nav.responseEnd - nav.requestStart) / 1000 : undefined,
+    render: nav ? Math.max(0, nav.responseEnd - nav.requestStart) / 1000 : undefined,
   }
 }
 
 function trackScroll() {
-  // Throttle the calculations to no more than five per second
+  // Throttle scroll calculations to no more than five per second.
   if (pauseScrolling) return
   pauseScrolling = true
   setTimeout(() => {
     pauseScrolling = false
   }, 200)
 
-  // Calculate where we are on the page
   const scrollPixels = window.scrollY + window.innerHeight
   const newScrollPosition = scrollPixels / document.documentElement.scrollHeight
 
-  // Count scroll flips
   const newScrollDirection = Math.sign(newScrollPosition - scrollPosition)
   if (newScrollDirection !== scrollDirection) scrollFlipCount++
 
-  // Update maximum scroll position reached
   if (newScrollPosition > maxScrollY) maxScrollY = newScrollPosition
 
-  // Update before the next event
   scrollDirection = newScrollDirection
   scrollPosition = newScrollPosition
 }
@@ -274,7 +248,11 @@ function sendPage() {
 function sendExit() {
   if (sentExit) return
   sentExit = true
-  const { render, firstContentfulPaint, domInteractive, domComplete } = getPerformance()
+  const { render, firstContentfulPaint, domInteractive, domComplete } = isFullPageLoad
+    ? getPerformance()
+    : {}
+
+  const clampedScrollLength = Math.min(maxScrollY, 1)
 
   return sendEvent({
     type: EventType.exit,
@@ -282,41 +260,44 @@ function sendExit() {
     exit_first_paint: firstContentfulPaint,
     exit_dom_interactive: domInteractive,
     exit_dom_complete: domComplete,
-    exit_visit_duration: (Date.now() - startVisitTime) / 1000,
-    exit_scroll_length: maxScrollY,
+    exit_visit_duration: (Date.now() - pageStartTime) / 1000,
+    exit_scroll_length: clampedScrollLength,
     exit_scroll_flip: scrollFlipCount,
   })
 }
 
 function initPageAndExitEvent() {
-  sendPage() // Initial page hit
+  sendPage()
 
-  // Regular page exits
   window.addEventListener('scroll', trackScroll)
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
       sendExit()
+      // sendExit only flushes the first time, so later hides still need a flush.
+      flushQueue()
+    } else {
+      flushQueue()
     }
   })
 
-  // Client-side routing
   Router.events.on('routeChangeStart', async (url) => {
-    // Don't trigger page events on query string or hash changes
-    previousPath = location.pathname // pathname set to "prior" url, arg "upcoming" url
+    // At routeChangeStart, location.pathname is prior and url is upcoming; query/hash keep one page event.
+    const previousPath = location.pathname
     const newPath = url?.toString().split('?')[0].split('#')[0]
     const shouldSendEvents = newPath !== previousPath
     if (shouldSendEvents) {
       sendExit()
+      const thisNavigation = ++pageReadyNavigation
       await waitForPageReady()
+      if (thisNavigation !== pageReadyNavigation) return
       resetPageParams()
+      pageReferrer = location.origin + previousPath
       sendPage()
     }
   })
 }
 
-// We want to wait for the DOM to mutate the <meta> tags
-// as well as finish routeChangeComplete (location.pathname)
-// before sending the page event in order to get accurate data
+// Wait for routeChangeComplete and meta-tag mutations so page events include the new page data.
 async function waitForPageReady() {
   const route = new Promise((resolve) => {
     const handler = () => {
@@ -348,11 +329,11 @@ async function waitForPageReady() {
 }
 
 function initClipboardEvent() {
-  ;['copy', 'cut', 'paste'].forEach((verb) => {
+  for (const verb of ['copy', 'cut', 'paste']) {
     document.documentElement.addEventListener(verb, () => {
       sendEvent({ type: EventType.clipboard, clipboard_operation: verb })
     })
-  })
+  }
 }
 
 function initCopyButtonEvent() {
@@ -360,6 +341,7 @@ function initCopyButtonEvent() {
     const target = evt.target as HTMLElement
     const button = target.closest('.js-btn-copy') as HTMLButtonElement
     if (!button) return
+
     sendEvent({
       type: EventType.clipboard,
       clipboard_operation: 'copy',
@@ -375,20 +357,26 @@ function initLinkEvent() {
     if (!link) return
     const sameSite = link.origin === location.origin
     const container = target.closest(`[data-container]`) as HTMLElement | null
+
+    // Any anchor can set data-group-key and data-group-id to include grouping fields.
+    const eventGroupKey = link?.dataset?.groupKey || undefined
+    const eventGroupId = link?.dataset?.groupId || undefined
+
     sendEvent({
       type: EventType.link,
       link_url: link.href,
       link_samesite: sameSite,
       link_samepage: sameSite && link.pathname === location.pathname,
       link_container: container?.dataset.container,
+      eventGroupKey,
+      eventGroupId,
     })
   })
 
-  // Add tracking for scroll to top button
   document.documentElement.addEventListener('click', (evt) => {
     const target = evt.target as HTMLElement
     if (!target.closest('.ghd-scroll-to-top')) return
-    const url = window.location.href.split('#')[0] // Remove hash
+    const url = window.location.href.split('#')[0]
     sendEvent({
       type: EventType.link,
       link_url: `${url}#scroll-to-top`,
@@ -407,12 +395,11 @@ function initHoverEvent() {
 
     if (!link) return
 
-    // For hover events, we only want to record them for links inside the
-    // content area.
+    // Record hover events only for links inside the content area.
     const mainContent = document.querySelector('#main-content') as HTMLElement | null
     if (!mainContent || !mainContent.contains(link)) return
 
-    if (hoveredUrls.has(link.href)) return // Otherwise this is a flood of events
+    if (hoveredUrls.has(link.href)) return // Repeated hovers would flood events.
 
     if (timer) {
       window.clearTimeout(timer)
@@ -428,9 +415,8 @@ function initHoverEvent() {
     }, 500)
   })
 
-  // Doesn't matter which link you hovered on that triggered a timer,
-  // you're clearly not hovering over it anymore.
   document.documentElement.addEventListener('mouseout', () => {
+    // Any mouseout cancels the pending hover timer.
     if (timer) {
       window.clearTimeout(timer)
     }
@@ -444,9 +430,11 @@ function initPrintEvent() {
 }
 
 export function initializeEvents() {
+  if (!ANALYTICS_ENABLED) return
   if (initialized) return
   initialized = true
-  initPageAndExitEvent() // must come first
+  // Page events must start first because sendPage creates pageEventId for later events.
+  initPageAndExitEvent()
   initLinkEvent()
   initHoverEvent()
   initClipboardEvent()

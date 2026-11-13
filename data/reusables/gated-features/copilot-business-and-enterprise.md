@@ -1,1 +1,1 @@
-Organizations with a subscription to [{% data variables.product.prodname_copilot_for_business %}](/copilot/copilot-business/about-github-copilot-business) or [{% data variables.product.prodname_copilot_enterprise %}](/copilot/github-copilot-enterprise/overview/about-github-copilot-enterprise).
+Organizations{% ifversion ghec %} and enterprises{% endif %} with a {% data variables.copilot.copilot_business_short %} or {% data variables.copilot.copilot_enterprise_short %} plan.

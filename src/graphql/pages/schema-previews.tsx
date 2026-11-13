@@ -1,19 +1,22 @@
 import { GetServerSideProps } from 'next'
+import type { Response } from 'express'
+import type { ExtendedRequest } from '@/types'
+import type { ServerResponse } from 'http'
 
 import {
   MainContextT,
   MainContext,
   getMainContext,
   addUINamespaces,
-} from 'src/frame/components/context/MainContext'
-import { AutomatedPage } from 'src/automated-pipelines/components/AutomatedPage'
+} from '@/frame/components/context/MainContext'
+import { AutomatedPage } from '@/automated-pipelines/components/AutomatedPage'
 import {
   AutomatedPageContext,
   AutomatedPageContextT,
   getAutomatedPageContextFromRequest,
-} from 'src/automated-pipelines/components/AutomatedPageContext'
-import { Previews } from 'src/graphql/components/Previews'
-import { PreviewT } from 'src/graphql/components/types'
+} from '@/automated-pipelines/components/AutomatedPageContext'
+import { Previews } from '@/graphql/components/Previews'
+import { PreviewT } from '@/graphql/components/types'
 
 type Props = {
   mainContext: MainContextT
@@ -33,25 +36,22 @@ export default function GraphqlPreviews({ mainContext, schema, automatedPageCont
 }
 
 export const getServerSideProps: GetServerSideProps<Props> = async (context) => {
-  const { getPreviews } = await import('src/graphql/lib/index.js')
-  const { getAutomatedPageMiniTocItems } = await import('src/frame/lib/get-mini-toc-items.js')
+  const { getPreviews } = await import('@/graphql/lib/index')
+  const { getAutomatedPageMiniTocItems } = await import('@/frame/lib/get-mini-toc-items')
 
-  const req = context.req as any
-  const res = context.res as any
+  const req = context.req as unknown as ExtendedRequest
+  const res = context.res as unknown as ServerResponse
   const currentVersion = context.query.versionId as string
   const schema = getPreviews(currentVersion) as PreviewT[]
   if (!schema) throw new Error(`No graphql preview schema found for ${currentVersion}`)
 
-  // Gets the miniTocItems in the article context. At this point it will only
-  // include miniTocItems that exist in Markdown pages in
-  // content/graphql/reference/*
+  // Start from the current page's Markdown headings, then append the generated ones.
   const automatedPageContext = getAutomatedPageContextFromRequest(req)
   const titles = schema.map((item) => item.title)
-  const changelogMiniTocItems = await getAutomatedPageMiniTocItems(titles, req.context.context, 2)
-  // Update the existing context to include the miniTocItems from GraphQL
+  const changelogMiniTocItems = await getAutomatedPageMiniTocItems(titles, req.context!, 2)
   automatedPageContext.miniTocItems.push(...changelogMiniTocItems)
 
-  const mainContext = await getMainContext(req, res)
+  const mainContext = await getMainContext(req, res as unknown as Response)
   addUINamespaces(req, mainContext.data.ui, ['graphql'])
 
   return {

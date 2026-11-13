@@ -1,25 +1,23 @@
 import { GetServerSideProps } from 'next'
-import { Operation } from 'src/rest/components/types'
-import { RestReferencePage } from 'src/rest/components/RestReferencePage'
-import {
-  addUINamespaces,
-  getMainContext,
-  MainContext,
-  MainContextT,
-} from 'src/frame/components/context/MainContext'
+import type { Response } from 'express'
+import type { ServerResponse } from 'http'
+import { Operation } from '@/rest/components/types'
+import type { ExtendedRequest, AllVersions } from '@/types/types'
+import { RestReferencePage } from '@/rest/components/RestReferencePage'
+import { getMainContext, MainContext, MainContextT } from '@/frame/components/context/MainContext'
 import {
   AutomatedPageContext,
   AutomatedPageContextT,
   getAutomatedPageContextFromRequest,
-} from 'src/automated-pipelines/components/AutomatedPageContext'
-import type { MiniTocItem } from 'src/frame/components/context/ArticleContext'
+} from '@/automated-pipelines/components/AutomatedPageContext'
+import type { MiniTocItem } from '@/frame/components/context/ArticleContext'
 import {
   getTocLandingContextFromRequest,
-  TocItem,
   TocLandingContext,
   TocLandingContextT,
-} from 'src/frame/components/context/TocLandingContext'
-import { TocLanding } from 'src/landings/components/TocLanding'
+} from '@/frame/components/context/TocLandingContext'
+import type { TocItem } from '@/landings/types'
+import { TocLanding } from '@/landings/components/TocLanding'
 
 type MinitocItemsT = {
   restOperationsMiniTocItems: MiniTocItem[]
@@ -32,6 +30,8 @@ type Props = {
   restOperations: Operation[]
 }
 
+// Category landing pages (index.md) render TocLanding instead of the REST reference
+// sidebar because their categories have no mini-TOC items at that level.
 export default function Category({
   mainContext,
   automatedPageContext,
@@ -43,10 +43,6 @@ export default function Category({
   return (
     <MainContext.Provider value={mainContext}>
       <AutomatedPageContext.Provider value={automatedPageContext}>
-        {/* When the page is the rest product landing page, we don't want to
-        render the rest-specific sidebar because toggling open the categories
-        won't have the minitoc items at that level. These are pages that have
-        category - subcategory - and operations */}
         {relativePath?.endsWith('index.md') ? (
           <TocLandingContext.Provider value={tocLandingContext}>
             <TocLanding />
@@ -60,50 +56,42 @@ export default function Category({
 }
 
 export const getServerSideProps: GetServerSideProps<Props> = async (context) => {
-  const { default: getRest, getRestMiniTocItems } = await import('src/rest/lib/index.js')
-  const nonEnterpriseDefaultVersionModule = await import(
-    'src/versions/lib/non-enterprise-default-version.js'
-  )
+  const { default: getRest, getRestMiniTocItems } = await import('@/rest/lib/index')
+  const nonEnterpriseDefaultVersionModule =
+    await import('@/versions/lib/non-enterprise-default-version')
   const nonEnterpriseDefaultVersion = nonEnterpriseDefaultVersionModule.default as string
 
-  const req = context.req as any
-  const res = context.res as any
-  const tocLandingContext = getTocLandingContextFromRequest(req)
-  // e.g. the `activity` from `/en/rest/activity/events`
+  const req = context.req as unknown as ExtendedRequest
+  const res = context.res as unknown as ServerResponse
+  const tocLandingContext = getTocLandingContextFromRequest(
+    req as unknown as Parameters<typeof getTocLandingContextFromRequest>[0],
+  )
   const category = context.params!.category as string
   let subcategory = context.params!.subcategory as string
   const currentVersion = context.params!.versionId as string
-  const currentLanguage = req.context.currentLanguage as string
-  const allVersions = req.context.allVersions
-  const queryApiVersion = context.query.apiVersion
+  const currentLanguage = req.context!.currentLanguage as string
+  const allVersions = req.context!.allVersions as AllVersions
+  const queryApiVersion = context.query.apiVersion as string
   const apiVersion = allVersions[currentVersion].apiVersions.includes(queryApiVersion)
     ? queryApiVersion
     : allVersions[currentVersion].latestApiVersion
 
-  // For pages with category level only operations like /rest/billing, we set
-  // the subcategory's value to be the category for the call to getRest()
+  // Category-only pages like /rest/billing use the category as the getRest subcategory.
   if (!subcategory) {
     subcategory = category
   }
 
-  const restOperations = (await getRest(currentVersion, apiVersion, category, subcategory)) || []
+  const categoryData = await getRest(currentVersion, apiVersion, category)
+  const restOperations = (categoryData && categoryData[subcategory]) || []
 
-  // Build table of contents for all category operations for TocLanding:
-  //
-  // * get all operations for a category (will be broken up by subcategory)
-  // * loop over subcategories and get the operations per subcategory
-  //   * get the minitoc items per set of subcategory operations
-  //   * with this data, build a collection of toc items that can be used by TocLanding
-  const restCategoryOperations = (await getRest(currentVersion, apiVersion, category)) || []
+  // TocLanding needs one child item per operation grouped under each REST subcategory.
+  const restCategoryOperations = categoryData || {}
   const restCategoryTocItems = []
 
   for (const [subCat, subCatOperations] of Object.entries(restCategoryOperations)) {
     let versionPathSegment: string
 
-    // If 'free-pro-team@latest' is in the URL, after clicking the link the
-    // sidebar isn't expanded to whatever subcategory or operation you clicked
-    // and 'free-pro-team@latest' is still in the browser address bar so
-    // manually removing.
+    // Omit free-pro-team@latest; otherwise clicked links keep it and the sidebar stays collapsed.
     if (context.params?.versionId === nonEnterpriseDefaultVersion) {
       versionPathSegment = '/'
     } else {
@@ -111,12 +99,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (context) => 
     }
 
     const fullSubcategoryPath = `/${context.locale}${versionPathSegment}rest/${context.params?.category}/${subCat}`
-    // The actual page titles are available from the tocLandingContext so we
-    // can use this information as we build our REST toc items.  If we relied
-    // only on the API information, we would need to cleanup subcategory names
-    // (e.g. they're all lowercase and use hyphens as word separators) and we
-    // would also end up using words we wouldn't want to like "Repos" instead
-    // of "GitHub Repositories" for example.
+    // Use tocLandingContext titles; OpenAPI slugs turn repos into Repos, not GitHub Repositories.
     let fullSubcategoryTitle
 
     const pageTocItem = tocLandingContext.tocItems.find(
@@ -126,9 +109,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (context) => 
     if (pageTocItem) {
       fullSubcategoryTitle = pageTocItem.title
     } else {
-      // Shouldn't happen but provide a reasonable fallback just in case.  E.g.
-      // for Organizations, a subcategory is 'outside-collaborators' and we
-      // convert that to 'Outside collaborators' for a toc item title.
+      // Fallback titleizes slugs such as outside-collaborators for missing toc entries.
       fullSubcategoryTitle = `${subCat[0].toUpperCase()}${subCat.slice(1).replaceAll('-', ' ')}`
     }
 
@@ -140,10 +121,10 @@ export const getServerSideProps: GetServerSideProps<Props> = async (context) => 
       subCatOperations,
       currentLanguage,
       currentVersion,
-      req.context,
+      req.context!,
     )) as MinitocItemsT
 
-    miniTocItems.restOperationsMiniTocItems.forEach((operationMinitoc) => {
+    for (const operationMinitoc of miniTocItems.restOperationsMiniTocItems) {
       const { title, href: miniTocAnchor } = operationMinitoc.contents
       const fullPath = `/${context.locale}${versionPathSegment}rest/${context.params?.category}/${subCat}${miniTocAnchor}`
 
@@ -151,25 +132,8 @@ export const getServerSideProps: GetServerSideProps<Props> = async (context) => 
         fullPath,
         title,
       })
-    })
+    }
 
-    // TocLanding expects a collection of objects that looks like this:
-    //
-    // {
-    //   fullPath: '/en/rest/activity/events',
-    //   title: 'Events',
-    //   childTocItems: [
-    //     {
-    //       fullPath: '/en/rest/activity/events#list-public-events',
-    //       title: 'List public events'
-    //     },
-    //     {
-    //       fullPath: '/en/rest/activity/events#list-public-events-for-a-network-of-repositories',
-    //       title: 'List public events for a network of repositories'
-    //     },
-    //     ...
-    //   ]
-    // }
     restCategoryTocItems.push({
       fullPath: fullSubcategoryPath,
       title: fullSubcategoryTitle,
@@ -177,17 +141,10 @@ export const getServerSideProps: GetServerSideProps<Props> = async (context) => 
     })
   }
 
-  // Gets the miniTocItems in the article context. At this point it will only
-  // include miniTocItems generated from the Markdown pages in
-  // content/rest/*
+  // Article context starts with mini-TOC items from content/rest Markdown.
   const { miniTocItems } = getAutomatedPageContextFromRequest(req)
 
-  // When operations exist, update the miniTocItems in the article context
-  // with the list of operations in the OpenAPI.
-
-  // The context passed will have the Markdown content for the language
-  // of the page being requested and the Markdown will be rendered
-  // using the `currentVersion`
+  // Append operation title anchors to the article mini-TOC.
   if (restOperations) {
     const { restOperationsMiniTocItems } = (await getRestMiniTocItems(
       category,
@@ -196,20 +153,17 @@ export const getServerSideProps: GetServerSideProps<Props> = async (context) => 
       restOperations,
       currentLanguage,
       currentVersion,
-      req.context,
+      req.context!,
     )) as MinitocItemsT
 
-    restOperationsMiniTocItems && miniTocItems.push(...restOperationsMiniTocItems)
+    if (restOperationsMiniTocItems) {
+      miniTocItems.push(...restOperationsMiniTocItems)
+    }
   }
 
-  // Replace the toc items in the context with the REST toc items we just
-  // created.
   tocLandingContext.tocItems = restCategoryTocItems
 
-  const mainContext = await getMainContext(req, res)
-  if (tocLandingContext.currentLearningTrack?.trackName) {
-    addUINamespaces(req, mainContext.data.ui, ['learning_track_nav'])
-  }
+  const mainContext = await getMainContext(req, res as unknown as Response)
 
   return {
     props: {

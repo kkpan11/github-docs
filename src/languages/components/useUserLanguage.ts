@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
-import Cookies from 'src/frame/components/lib/cookies'
+import Cookies from '@/frame/components/lib/cookies'
 import { useRouter } from 'next/router'
 
-import { useLanguages } from 'src/languages/components/LanguagesContext'
-import { USER_LANGUAGE_COOKIE_NAME } from 'src/frame/lib/constants.js'
+import { useLanguages } from '@/languages/components/LanguagesContext'
+import { USER_LANGUAGE_COOKIE_NAME } from '@/frame/lib/constants'
 
 export function useUserLanguage() {
   const { locale } = useRouter()
@@ -17,9 +17,7 @@ export function useUserLanguage() {
       ...navigator.languages,
     ]
       .filter(Boolean)
-      // If it comes from `navigator.language` it most likely will contain
-      // the region. E.g. `en-US` but in our application, we don't use
-      // the region.
+      // Strip regions because this app stores two-letter codes, so en-US becomes en.
       .map((lang) => lang && lang.slice(0, 2).toLowerCase())
       .find((lang) => lang && lang in languages)
 

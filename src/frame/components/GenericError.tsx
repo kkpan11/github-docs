@@ -3,7 +3,9 @@ import Link from 'next/link'
 import { useRouter } from 'next/router'
 
 import { MarkGithubIcon, CommentDiscussionIcon } from '@primer/octicons-react'
-import { Lead } from 'src/frame/components/ui/Lead'
+import { Lead } from '@/frame/components/ui/Lead'
+
+import styles from './GenericError.module.scss'
 
 export function GenericError() {
   return (
@@ -38,23 +40,22 @@ export function GenericError() {
 export const SimpleHeader = () => {
   const router = useRouter()
   return (
-    <div className="border-bottom color-border-muted no-print">
+    <div className={`no-print ${styles.headerBorder}`}>
       <header
         className="container-xl p-responsive py-3 position-relative d-flex width-full"
         role="banner"
         aria-label="Main"
       >
-        <div className="d-flex flex-items-center" style={{ zIndex: 3 }} id="github-logo-mobile">
-          <Link href={`/${router.locale}`} passHref legacyBehavior>
-            {/* eslint-disable-next-line jsx-a11y/anchor-is-valid */}
-            <a aria-hidden="true" tabIndex={-1}>
-              <MarkGithubIcon size={32} className="color-fg-default" />
-            </a>
+        <div className={`d-flex flex-items-center ${styles.logoContainer}`} id="github-logo-mobile">
+          <Link href={`/${router.locale}`} aria-hidden="true" tabIndex={-1}>
+            <MarkGithubIcon size={32} className={styles.fgDefault} />
           </Link>
 
-          <Link href={`/${router.locale}`} passHref legacyBehavior>
-            {/* eslint-disable-next-line jsx-a11y/anchor-is-valid */}
-            <a className="h4 color-fg-default no-underline no-wrap pl-2">GitHub Docs</a>
+          <Link
+            href={`/${router.locale}`}
+            className={`no-underline h4 no-wrap pl-2 ${styles.fgDefault}`}
+          >
+            GitHub Docs
           </Link>
         </div>
       </header>
@@ -66,16 +67,16 @@ export const SimpleFooter = () => {
   return (
     <footer className="py-6">
       <div className="container-xl px-3 px-md-6">
-        <ul className="d-flex flex-wrap list-style-none">
-          <li className="d-flex mr-xl-3 color-fg-muted">
+        <ul role="list" className="d-flex flex-wrap list-style-none">
+          <li role="listitem" className={`d-flex mr-xl-3 ${styles.fgMuted}`}>
             <span>&copy; {new Date().getFullYear()} GitHub, Inc.</span>
           </li>
-          <li className="ml-3">
+          <li role="listitem" className="ml-3">
             <a className="text-underline" href="/site-policy/github-terms/github-terms-of-service">
               Terms
             </a>
           </li>
-          <li className="ml-3">
+          <li role="listitem" className="ml-3">
             <a
               className="text-underline"
               href="/site-policy/privacy-policies/github-privacy-statement"
@@ -83,22 +84,22 @@ export const SimpleFooter = () => {
               Privacy{' '}
             </a>
           </li>
-          <li className="ml-3">
+          <li role="listitem" className="ml-3">
             <a className="text-underline" href="https://www.githubstatus.com/">
               Status
             </a>
           </li>
-          <li className="ml-3">
+          <li role="listitem" className="ml-3">
             <a className="text-underline" href="https://github.com/pricing">
               Pricing
             </a>
           </li>
-          <li className="ml-3">
+          <li role="listitem" className="ml-3">
             <a className="text-underline" href="https://services.github.com/">
               Expert services
             </a>
           </li>
-          <li className="ml-3">
+          <li role="listitem" className="ml-3">
             <a className="text-underline" href="https://github.blog/">
               Blog
             </a>

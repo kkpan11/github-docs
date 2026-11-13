@@ -1,10 +1,4 @@
-/**
- * This script is used to analyze posted survey comments in a CSV file.
- * The CSV file is expected to have come from the Azure Data Explorer
- * after having queries the `docs_v0_survey_event` table.
- *
- *
- */
+// Analyze posted survey comments in CSVs exported from Azure Data Explorer's docs_v0_survey_event.
 
 import fs from 'node:fs'
 import util from 'node:util'
@@ -13,7 +7,7 @@ import chalk from 'chalk'
 import { parse } from 'csv-parse'
 import { program } from 'commander'
 
-import { SIGNAL_RATINGS } from '../analyze-comment'
+import { SIGNAL_RATINGS } from '../lib/analyze-comment'
 
 type Options = {
   outputFile: string
@@ -42,12 +36,15 @@ async function main(csvFile: string[], options: Options) {
 
 type Record = {
   [key: string]: string | number
+} & {
+  survey_comment: string
+  survey_comment_language: string
 }
 
 async function analyzeFile(csvFile: string, options: Options) {
   const parser = fs.createReadStream(csvFile).pipe(
     parse({
-      // Needed when parsing CSVs from the Azure Data Explorer
+      // Azure Data Explorer CSV exports include a byte-order mark.
       bom: true,
     }),
   )
@@ -57,9 +54,7 @@ async function analyzeFile(csvFile: string, options: Options) {
     if (headers === null) {
       headers = record as string[]
     } else {
-      const obj: {
-        [key: string]: string
-      } = {}
+      const obj = {} as Record
       for (let i = 0; i < headers.length; i++) {
         obj[headers[i]] = record[i]
       }
@@ -76,7 +71,7 @@ async function analyzeFile(csvFile: string, options: Options) {
     let rating = 1.0
     let first = true
     for (const { reduction, name, validator } of SIGNAL_RATINGS) {
-      const hit = validator(record.survey_comment, language)
+      const hit = await validator(record.survey_comment, language)
       if (hit) {
         rating -= reduction
         if (first) {

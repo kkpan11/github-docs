@@ -1,112 +1,90 @@
-# This Dockerfile is used for docker-based deployments to Azure for both preview environments and production
+# Build this Moda production image in CI or from src/deployments/production/README.md.
+# Most environment variables come from config/moda/configuration/*/env.yaml.
+# Mirror NODE_OPTIONS there and here for defense in depth.
 
-# --------------------------------------------------------------------------------
-# BASE IMAGE
-# --------------------------------------------------------------------------------
-# To update the sha, run `docker pull node:$VERSION-alpine`
-# look for something like: `Digest: sha256:0123456789abcdef`
-FROM node:20-alpine@sha256:66f7f89199daea88a6b5d5aadaa6d20f7a16a90fc35274deda8e901e267d4bd7 as base
+# Update the base image digest from the gh-base-noble package page:
+# https://github.com/github/gh-base-image/pkgs/container/gh-base-image%2Fgh-base-noble
+FROM ghcr.io/github/gh-base-image/gh-base-noble:20261028-150140-g8ff90a672@sha256:2f8cb0ab06a0547bd9d70a81829f680208e7e6852d1e6abc1f68569d414e3d00 AS base
+# Install curl for NodeSource setup.
+# Install git for early-access and translation clones.
+# Ubuntu's nodejs package lags the Node LTS release line.
+# Root must install OS packages before switching to node.
+# pkg-mirror-host routes apt through GitHub's package mirror but is not sensitive.
+# https://thehub.github.com/epd/engineering/devops/ci/actions/setting-up-new-github-action/
+RUN --mount=type=secret,id=pkg-mirror-host,target=/etc/pkg_mirror_host.txt \
+  if [ -f /etc/pkg_mirror_host.txt ]; then cat /etc/pkg_mirror_host.txt >> /etc/apt/mirrorlist.txt; fi
+RUN --mount=type=secret,id=apt-auth-conf,target=/etc/apt/auth.conf.d/apt_auth.conf \
+  apt-get -qq update && apt-get -qq install --no-install-recommends curl git \
+  && curl -sL https://deb.nodesource.com/setup_26.x | bash - \
+  && apt-get install -y nodejs \
+  && node --version
+# Fail the build unless NodeSource installed Node 26.x at 26.12.1 or later (CVE-2026-111497 brotli decoder fix).
+RUN node -e 'const [maj, min, pat] = process.versions.node.split(".").map(Number); if (maj !== 26 || min < 12 || (min === 12 && pat < 1)) { throw new Error("Node 26.x >= 26.12.1 required (brotli CVE-2026-111497), got " + process.versions.node); }'
+# Stages built FROM base inherit this ARG, so every later stage can use APP_HOME.
+ARG APP_HOME="/home/node/app"
+RUN useradd -ms /bin/bash node \
+  && mkdir -p $APP_HOME && chown -R node:node $APP_HOME
 
-# This directory is owned by the node user
-ARG APP_HOME=/home/node/app
-
-# Make sure we don't run anything as the root user
-USER node
-
+FROM base AS clones
+USER node:node
 WORKDIR $APP_HOME
+# Copy content inputs that the fetch script merges with early-access content.
+COPY --chown=node:node content content/
+COPY --chown=node:node assets assets/
+COPY --chown=node:node data data/
+COPY --chown=node:node --chmod=+x \
+  src/deployments/production/build-scripts/*.sh build-scripts/
+# Mount the PAT secret as a BuildKit file so the secret file stays out of layers.
+# Fetch docs-early-access, merge it over local content, then clone translations.
+# Log the fetch time when this layer runs.
+RUN --mount=type=secret,id=DOCS_BOT_PAT_BASE,mode=0444 \
+  echo "Don't cache this step by printing date: $(date)" && \
+  . ./build-scripts/fetch-repos.sh
 
-
-# ---------------
-# ALL DEPS
-# ---------------
-FROM base as all_deps
-
+FROM base AS all_deps
+USER node:node
+WORKDIR $APP_HOME
 COPY --chown=node:node package.json package-lock.json ./
+RUN npm ci --registry https://registry.npmjs.org/
 
-RUN npm ci --no-optional --registry https://registry.npmjs.org/
+FROM all_deps AS prod_deps
+RUN npm prune --omit=dev --ignore-scripts
 
-# For Next.js v12+
-# This the appropriate necessary extra for node:VERSION-alpine
-# Other options are https://www.npmjs.com/search?q=%40next%2Fswc
-RUN npm i @next/swc-linux-x64-musl --no-save || npm i @next/swc-linux-arm64-musl --no-save
+FROM base AS build
+USER node:node
+WORKDIR $APP_HOME
+COPY --chown=node:node src src/
+COPY --chown=node:node package.json ./
+COPY --chown=node:node next.config.ts ./
+COPY --chown=node:node tsconfig.json ./
+COPY --chown=node:node --from=clones $APP_HOME/data data/
+COPY --chown=node:node --from=clones $APP_HOME/assets assets/
+COPY --chown=node:node --from=clones $APP_HOME/content content/
+COPY --chown=node:node --from=clones $APP_HOME/translations translations/
+COPY --chown=node:node --from=all_deps $APP_HOME/node_modules node_modules/
+RUN npm run build && rm -rf .next/cache/webpack
 
+FROM build AS warmup_cache
+RUN npm run warmup-remotejson
 
-# ---------------
-# PROD DEPS
-# ---------------
-FROM all_deps as prod_deps
-
-RUN npm prune --production
-
-
-# ---------------
-# BUILDER
-# ---------------
-FROM all_deps as builder
-
-COPY src ./src
-# The star is because it's an optional directory
-COPY .remotejson-cache* ./.remotejson-cache
-# The star is because it's an optional file
-COPY .pageinfo-cache.json.br* ./.pageinfo-cache.json.br
-# Certain content is necessary for being able to build
-COPY content/index.md ./content/index.md
-COPY content/rest ./content/rest
-COPY data ./data
-
-COPY next.config.js ./next.config.js
-COPY tsconfig.json ./tsconfig.json
-
-RUN npm run build
-
-# --------------------------------------------------------------------------------
-# PREVIEW IMAGE - no translations
-# --------------------------------------------------------------------------------
-
-FROM base as preview
-
-# Copy just prod dependencies
-COPY --chown=node:node --from=prod_deps $APP_HOME/node_modules $APP_HOME/node_modules
-
-# Copy our front-end code
-COPY --chown=node:node --from=builder $APP_HOME/.next $APP_HOME/.next
-
-# We should always be running in production mode
-ENV NODE_ENV production
-
-# Preferred port for server.js
-ENV PORT 4000
-
-ENV ENABLED_LANGUAGES "en"
-
-# This makes it possible to set `--build-arg BUILD_SHA=abc123`
-# and it then becomes available as an environment variable in the docker run.
+FROM base AS production
+USER node:node
+WORKDIR $APP_HOME
+COPY --chown=node:node src src/
+COPY --chown=node:node package.json ./
+COPY --chown=node:node next.config.ts ./
+COPY --chown=node:node tsconfig.json ./
+COPY --chown=node:node --from=clones $APP_HOME/data data/
+COPY --chown=node:node --from=clones $APP_HOME/assets assets/
+COPY --chown=node:node --from=clones $APP_HOME/content content/
+COPY --chown=node:node --from=clones $APP_HOME/translations translations/
+COPY --chown=node:node --from=prod_deps $APP_HOME/node_modules node_modules/
+COPY --chown=node:node --from=build $APP_HOME/.next .next/
+COPY --chown=node:node --from=warmup_cache $APP_HOME/.remotejson-cache .remotejson-cache/
+# Expose the build SHA at runtime when callers pass --build-arg BUILD_SHA=abc123.
 ARG BUILD_SHA
 ENV BUILD_SHA=$BUILD_SHA
-
-# Copy only what's needed to run the server
-COPY --chown=node:node package.json ./
-COPY --chown=node:node assets ./assets
-COPY --chown=node:node content ./content
-COPY --chown=node:node src ./src
-COPY --chown=node:node .remotejson-cache* ./.remotejson-cache
-COPY --chown=node:node .pageinfo-cache.json.br* ./.pageinfo-cache.json.br
-COPY --chown=node:node data ./data
-COPY --chown=node:node next.config.js ./
-COPY --chown=node:node tsconfig.json ./
-
-EXPOSE $PORT
-
+# --max-old-space-size-percentage needs Node 24+ and tracks the cgroup memory limit.
+# 80% leaves headroom for off-heap memory (Buffers, V8 code cache, libuv) and the OS.
+ENV NODE_OPTIONS="--max-old-space-size-percentage=80"
 CMD ["node_modules/.bin/tsx", "src/frame/server.ts"]
-
-# --------------------------------------------------------------------------------
-# PRODUCTION IMAGE - includes all translations
-# --------------------------------------------------------------------------------
-FROM preview as production
-
-# Override what was set for previews
-# Make this match the default of `Object.keys(languages)` in src/languages/lib/languages.js
-ENV ENABLED_LANGUAGES "en,zh,es,pt,ru,ja,fr,de,ko"
-
-# Copy in all translations
-COPY --chown=node:node translations ./translations

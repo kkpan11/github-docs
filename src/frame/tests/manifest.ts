@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest'
 import sharp from 'sharp'
 
-import { SURROGATE_ENUMS } from '@/frame/middleware/set-fastly-surrogate-key.js'
-import { get, getDOM } from '@/tests/helpers/e2etest.js'
+import { makeLanguageSurrogateKey } from '@/frame/middleware/set-fastly-surrogate-key'
+import { get, getDOM } from '@/tests/helpers/e2etest'
 
 type Manifest = {
   name: string
@@ -20,16 +20,19 @@ describe('manifest', () => {
   test('download manifest from HTML and check content', async () => {
     const $ = await getDOM('/')
     const url = $('link[rel="manifest"]').attr('href')
+    if (!url) {
+      throw new Error('No manifest URL found')
+    }
     const res = await get(url)
     expect(res.statusCode).toBe(200)
 
-    // Check that it can be cached at the CDN
+    // CDN caching must not set cookies and must include the no-language surrogate key.
     expect(res.headers['set-cookie']).toBeUndefined()
     expect(res.headers['cache-control']).toContain('public')
     expect(res.headers['cache-control']).toMatch(/max-age=[1-9]/)
     expect(res.headers['surrogate-control']).toContain('public')
     expect(res.headers['surrogate-control']).toMatch(/max-age=[1-9]/)
-    expect(res.headers['surrogate-key']).toBe(`${SURROGATE_ENUMS.DEFAULT} no-language`)
+    expect(res.headers['surrogate-key']).toBe(makeLanguageSurrogateKey())
 
     const manifest: Manifest = JSON.parse(res.body)
     expect(manifest.name).toBe('GitHub Docs')
@@ -39,11 +42,11 @@ describe('manifest', () => {
     expect(manifest.icons.length).toBeGreaterThan(0)
     await Promise.all(
       manifest.icons.map(async (icon) => {
-        const res = await get(icon.src, { responseType: 'buffer' })
-        expect(res.statusCode).toBe(200)
-        expect(res.headers['content-type']).toBe(icon.type)
-        // The `sizes` should match the payload
-        const image = sharp(res.body)
+        const iconRes = await get(icon.src, { responseType: 'buffer' })
+        expect(iconRes.statusCode).toBe(200)
+        expect(iconRes.headers['content-type']).toBe(icon.type)
+        // sizes must match the image payload.
+        const image = sharp(iconRes.body)
         const [width, height] = icon.sizes.split('x').map((s) => parseInt(s))
         const dimensions = await image.metadata()
         expect(dimensions.width).toBe(width)

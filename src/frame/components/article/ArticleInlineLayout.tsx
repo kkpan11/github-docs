@@ -1,66 +1,51 @@
 import React from 'react'
-import cx from 'classnames'
-import { Box } from '@primer/react'
+import cx from 'clsx'
 import { SupportPortalVaIframe, SupportPortalVaIframeProps } from './SupportPortalVaIframe'
 
 import styles from './ArticleInlineLayout.module.scss'
 
 type Props = {
-  breadcrumbs?: React.ReactNode
   intro?: React.ReactNode
   introCallOuts?: React.ReactNode
   topper?: React.ReactNode
-  toc?: React.ReactNode
   children?: React.ReactNode
   className?: string
   supportPortalVaIframeProps?: SupportPortalVaIframeProps
 }
+// ArticleInlineLayout gives intro callouts the same 24px gap the grid layout gets
+// from .belowIntroPlacement because inline callouts live outside the intro wrapper.
+// Inline pages omit the mini-TOC cell because DefaultLayout passes hasDrawer=false
+// and OverviewSubBar owns In this article at every width. Rendering another cell
+// would add an empty bordered box before the intro and a duplicate nav landmark
+// at 1400px.
 export const ArticleInlineLayout = ({
-  breadcrumbs,
   intro,
   introCallOuts,
   topper,
-  toc,
   children,
   className,
   supportPortalVaIframeProps,
 }: Props) => {
   return (
-    <Box className={cx(styles.containerBox, className)}>
-      {breadcrumbs && (
-        <Box gridArea="breadcrumbs" className={cx('d-none d-xxl-block mt-3 mr-auto width-full')}>
-          {breadcrumbs}
-        </Box>
-      )}
-      <Box className={cx(styles.contentBox)}>
-        {topper && <Box gridArea="topper">{topper}</Box>}
+    <div className={cx(styles.containerBox, className)}>
+      <div className={cx(styles.contentBox)}>
+        {topper && <div style={{ gridArea: 'topper' }}>{topper}</div>}
 
         {intro && (
-          <Box id="article-intro" gridArea="intro" className="f4">
+          <div id="article-intro" style={{ gridArea: 'intro' }} className="f4">
             {intro}
-          </Box>
+          </div>
         )}
 
         {introCallOuts && (
-          <Box gridArea="intro" className="f4 mb-4">
+          <div style={{ gridArea: 'intro' }} className="f4 mt-4 mb-4">
             {introCallOuts}
-          </Box>
+          </div>
         )}
 
-        {toc && (
-          <Box
-            data-container="toc"
-            gridArea="sidebar"
-            alignSelf="flex-start"
-            className={cx(styles.sidebarBox, 'border-bottom border-lg-0 pb-4 mb-5 pb-xl-0 mb-xl-0')}
-          >
-            {toc}
-          </Box>
-        )}
-
-        <Box
+        <div
           data-container="article"
-          gridArea="content"
+          style={{ gridArea: 'content' }}
           data-search="article-body"
           className={cx(styles.articleContainer, className)}
         >
@@ -70,8 +55,8 @@ export const ArticleInlineLayout = ({
               <SupportPortalVaIframe supportPortalVaIframeProps={supportPortalVaIframeProps} />
             )}
           {children}
-        </Box>
-      </Box>
-    </Box>
+        </div>
+      </div>
+    </div>
   )
 }

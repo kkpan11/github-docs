@@ -3,8 +3,8 @@ import { describe, expect, test, vi } from 'vitest'
 import sharp from 'sharp'
 import { fileTypeFromBuffer } from 'file-type'
 
-import { SURROGATE_ENUMS } from '@/frame/middleware/set-fastly-surrogate-key.js'
-import { get, head } from '@/tests/helpers/e2etest.js'
+import { SURROGATE_ENUMS } from '@/frame/middleware/set-fastly-surrogate-key'
+import { get, head } from '@/tests/helpers/e2etest'
 
 describe('dynamic assets', () => {
   vi.setConfig({ testTimeout: 3 * 60 * 1000 })
@@ -37,7 +37,7 @@ describe('dynamic assets', () => {
   })
 
   test('max-width=1000 as a WebP', async () => {
-    // The _fixtures/screenshot.png is 2000(x1494) which is *more than 1000*
+    // _fixtures/screenshot.png is 2000x1494, larger than 1000.
     const res = await get('/assets/images/mw-1000/_fixtures/screenshot.webp', {
       responseType: 'buffer',
     })
@@ -50,7 +50,7 @@ describe('dynamic assets', () => {
   })
 
   test('max-width not necessary as a WebP', async () => {
-    // The _fixtures/electrocat.png is 448(x448) which is *less than 1000*
+    // _fixtures/electrocat.png is 448x448, smaller than 1000.
     const res = await get('/assets/images/mw-1000/_fixtures/electrocat.webp', {
       responseType: 'buffer',
     })
@@ -68,14 +68,12 @@ describe('dynamic assets', () => {
   })
 
   test('max-width has to be a valid number when converting to WebP', async () => {
-    // 0 is too small
     {
       const res = await get('/assets/images/mw-0/_fixtures/screenshot.webp')
       expect(res.statusCode).toBe(400)
       expect(res.headers['content-type']).toMatch('text/plain')
       expect(res.body).toMatch('Error: width number (0) is not a valid number')
     }
-    // 1234 is not a number that is recognized
     {
       const res = await get('/assets/images/mw-1234/_fixtures/screenshot.webp')
       expect(res.statusCode).toBe(400)
@@ -102,8 +100,20 @@ describe('dynamic assets', () => {
     expect(res.headers['content-type']).toMatch(/text\/plain/)
   })
 
+  test('WebP path through an existing PNG gets a 404', async () => {
+    const res = await get('/assets/images/_fixtures/screenshot.png/x.webp')
+    expect(res.statusCode).toBe(404)
+    expect(res.headers['content-type']).toMatch(/text\/plain/)
+  })
+
+  test('WebP filename longer than the filesystem limit gets a 404', async () => {
+    const res = await get(`/assets/images/${'a'.repeat(300)}.webp`)
+    expect(res.statusCode).toBe(404)
+    expect(res.headers['content-type']).toMatch(/text\/plain/)
+  })
+
   test.each(['key', 'key=value'])('any query string (%p) triggers a redirect', async (qs) => {
-    const res = await get('/assets/images/_fixtures/screenshot.webp?' + qs)
+    const res = await get(`/assets/images/_fixtures/screenshot.webp?${qs}`)
     expect(res.statusCode).toBe(302)
     expect(res.headers.location).toBe('/assets/images/_fixtures/screenshot.webp')
     expect(res.headers['cache-control']).toContain('public')

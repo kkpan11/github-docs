@@ -30,4 +30,15 @@
 
 .responseCodeBlock {
   min-height: 120px;
+  max-height: 60vh;
+}
+
+.segmentedControl {
+  padding: 0 !important;
+  margin-bottom: 0.5rem !important;
+
+  li + li {
+    // Match Primer's segmented-control sibling selector.
+    margin-top: -1px !important;
+  }
 }

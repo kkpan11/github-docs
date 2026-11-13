@@ -1,35 +1,35 @@
 ---
 title: '{% data variables.product.prodname_copilot %} documentation'
 shortTitle: '{% data variables.product.prodname_copilot %}'
-intro: 'You can use {% data variables.product.prodname_copilot %} to get autocomplete-style suggestions from an AI pair programmer as you code.'
+intro: 'You can use {% data variables.product.prodname_copilot %} to enhance your productivity and assist as you work on code.'
 redirect_from:
   - /github/copilot
-changelog:
-  label: copilot
+  - /copilot/using-github-copilot/using-github-copilot-for-pull-requests/using-copilot-to-help-you-work-on-a-pull-request
 introLinks:
-  overview: /copilot/about-github-copilot
-  quickstart: /copilot/quickstart
-featuredLinks:
-  startHere:
-    - /copilot/using-github-copilot/getting-code-suggestions-in-your-ide-with-github-copilot
-  popular:
-    - /copilot/using-github-copilot/prompt-engineering-for-github-copilot
-    - /billing/managing-billing-for-github-copilot/about-billing-for-github-copilot
-    - /copilot/managing-copilot/configure-personal-settings/configuring-github-copilot-in-your-environment
-    - /copilot/managing-copilot/managing-copilot-as-an-individual-subscriber/managing-copilot-policies-as-an-individual-subscriber
-layout: product-landing
+  overview: /copilot/get-started/about-github-copilot
+  quickstart: /copilot/get-started/quickstart-for-using-github-copilot-on-github-com
+layout: discovery-landing
+heroImage: /assets/images/banner-images/hero-6
 versions:
   feature: copilot
+  ghes: '*'
 children:
-  - /about-github-copilot
-  - /quickstart
-  - /using-github-copilot
-  - /managing-copilot
-  - /copilot-individual
-  - /copilot-business
-  - /github-copilot-enterprise
-  - /troubleshooting-github-copilot
-  - /responsible-use-of-github-copilot-features
-topics:
-  - Copilot
+  - /get-started
+  - /concepts
+  - /how-tos
+  - /reference
+  - /tutorials
+  - /responsible-use
+  - /copilot-on-ghes
+contentType: landing
+includedCategories:
+  - Learn about Copilot
+  - Configure Copilot
+  - Author and optimize with Copilot
+  - Integrate Copilot with your tools
+  - Manage Copilot for a team
+  - Track Copilot usage
+  - Troubleshooting Copilot
+  - Responsible use
+  - Copilot in the CLI
 ---

@@ -2,35 +2,37 @@ import type { NextFunction, Response } from 'express'
 
 import type { ExtendedRequest, Context } from '@/types'
 
-import languages from '@/languages/lib/languages.js'
-import enterpriseServerReleases from '@/versions/lib/enterprise-server-releases.js'
-import { allVersions } from '@/versions/lib/all-versions.js'
-import { productMap } from '@/products/lib/all-products.js'
+import languages from '@/languages/lib/languages-server'
+import enterpriseServerReleases from '@/versions/lib/enterprise-server-releases'
+import { allVersions } from '@/versions/lib/all-versions'
+import { productMap } from '@/products/lib/all-products'
 import {
   getVersionStringFromPath,
   getProductStringFromPath,
   getCategoryStringFromPath,
   getPathWithoutLanguage,
   getPathWithoutVersion,
-} from '@/frame/lib/path-utils.js'
-import productNames from '@/products/lib/product-names.js'
+} from '@/frame/lib/path-utils'
+import productNames from '@/products/lib/product-names'
 import warmServer from '@/frame/lib/warm-server'
-import nonEnterpriseDefaultVersion from '@/versions/lib/non-enterprise-default-version.js'
-import { getDataByLanguage, getUIDataMerged } from '@/data-directory/lib/get-data.js'
+import nonEnterpriseDefaultVersion from '@/versions/lib/non-enterprise-default-version'
+import { getDataByLanguage, getUIDataMerged } from '@/data-directory/lib/get-data'
+import { updateLoggerContext } from '@/observability/logger/lib/logger-context'
 
-// This doesn't change just because the request changes, so compute it once.
+// Enterprise Server version keys do not depend on each request, so compute them once.
 const enterpriseServerVersions = Object.keys(allVersions).filter((version) =>
   version.startsWith('enterprise-server@'),
 )
 
-// Supply all route handlers with a baseline `req.context` object
-// Note that additional middleware in middleware/index.js adds to this context object
+// middleware/index.ts depends on contextualize setting baseline req.context.
+// For non-English pages, contextualize adds getEnglishPage for renderContentWithFallback.
+// It handles fallback-eligible Liquid, autotitle, and empty-title errors.
 export default async function contextualize(
   req: ExtendedRequest,
   res: Response,
   next: NextFunction,
 ) {
-  // Ensure that we load some data only once on first request
+  // warmServer caches this data after the first request.
   const { redirects, siteTree, pages: pageMap } = await warmServer([])
 
   const context: Context = {}
@@ -38,8 +40,15 @@ export default async function contextualize(
 
   req.context.process = { env: {} }
 
-  // define each context property explicitly for code-search friendliness
-  // e.g. searches for "req.context.page" will include results from this file
+  if (req.pagePath && req.pagePath.endsWith('.md')) {
+    // The rendering pipeline resolves req.pagePath in the tree without the .md suffix.
+    req.pagePath = req.pagePath.replace(/\/index\.md$/, '').replace(/\.md$/, '')
+    req.context.markdownRequested = true
+    // markdownViaUrl avoids a misleading Vary: accept header for URL suffix requests.
+    req.context.markdownViaUrl = true
+  }
+
+  // Explicit req.context property assignments keep code search results discoverable.
   req.context.currentLanguage = req.language
   req.context.userLanguage = req.userLanguage
   req.context.currentVersion = getVersionStringFromPath(req.pagePath) as string
@@ -51,8 +60,7 @@ export default async function contextualize(
   req.context.allVersions = allVersions
   req.context.currentPathWithoutLanguage = getPathWithoutLanguage(req.pagePath)
 
-  // define property for writers to link to the current page in a different version
-  // includes any type of rendered page not just "articles"
+  // currentArticle lets writers link any rendered page, not only articles, in another version.
   req.context.currentArticle = getPathWithoutVersion(req.context.currentPathWithoutLanguage)
   req.context.currentPath = req.pagePath
   req.context.query = req.query
@@ -63,43 +71,45 @@ export default async function contextualize(
   req.context.redirects = redirects
   req.context.site = {
     data: {
-      ui: getUIDataMerged(req.language),
+      ui: getUIDataMerged(req.language!),
     },
   }
-  req.context.getDottedData = (dottedPath) => getDataByLanguage(dottedPath, req.language)
+  req.context.getDottedData = (dottedPath) => getDataByLanguage(dottedPath, req.language!)
   req.context.siteTree = siteTree
   req.context.pages = pageMap
   req.context.nonEnterpriseDefaultVersion = nonEnterpriseDefaultVersion
   req.context.initialRestVersioningReleaseDate =
     allVersions[nonEnterpriseDefaultVersion].apiVersions[0]
+  // apiVersions sorts newest first, so the last item is the default without X-GitHub-Api-Version.
+  const apiVersions = allVersions[nonEnterpriseDefaultVersion].apiVersions
+  req.context.defaultRestApiVersion = apiVersions[apiVersions.length - 1]
 
   const restDate = new Date(req.context.initialRestVersioningReleaseDate)
   req.context.initialRestVersioningReleaseDateLong = restDate.toUTCString().split(' 00:')[0]
 
-  // Conditionally add this for non-English pages so what inside the
-  // `Page.render` method, when it calls out to `renderContentWithFallback`
-  // it can be able to fall back get original content from English if there's
-  // some runtime rendering error from the translation.
   if (req.language !== 'en') {
-    // The reason this is a function is because most of the time, we don't
-    // need to know the English equivalent. It only comes into play if a
-    // translated
-    req.context.getEnglishPage = (context) => {
-      if (!context.enPage) {
-        const { page } = context
+    // getEnglishPage delays the lookup until a translated page needs fallback content.
+    req.context.getEnglishPage = (ctx) => {
+      if (!ctx.enPage) {
+        const { page } = ctx
         if (!page) {
           throw new Error("The 'page' has not been put into the context yet.")
         }
-        const enPath = context.currentPath!.replace(`/${page.languageCode}`, '/en')
-        const enPage = context.pages![enPath]
+        const enPath = ctx.currentPath!.replace(`/${page.languageCode}`, '/en')
+        const enPage = ctx.pages![enPath]
         if (!enPage) {
           throw new Error(`Unable to find equivalent English page by the path '${enPath}'`)
         }
-        context.enPage = enPage
+        ctx.enPage = enPage
       }
-      return context.enPage
+      return ctx.enPage
     }
   }
+
+  updateLoggerContext({
+    version: req.context.currentVersion,
+    pagePath: req.pagePath,
+  })
 
   return next()
 }

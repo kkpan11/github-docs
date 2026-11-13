@@ -1,8 +1,8 @@
-import { ReactNode } from 'react'
 import { ActionList } from '@primer/react'
+import React, { ReactNode } from 'react'
+import cx from 'clsx'
 
 import { PickerItem } from './Picker'
-import { Link } from 'src/frame/components/Link'
 
 import styles from './Fields.module.scss'
 
@@ -16,35 +16,30 @@ export const Fields = (fieldProps: {
   const { open, setOpen, items, onSelect, renderItem } = fieldProps
 
   return (
-    <ActionList selectionVariant="single">
+    <ActionList selectionVariant="single" role="menu">
       {items.map((item, i) =>
         item.divider ? (
           <ActionList.Divider key={`divider${i}`} />
         ) : (
-          <ActionList.Item
-            as={Link}
+          <ActionList.LinkItem
+            as="a"
             key={item.text}
             href={item.href}
-            selected={item.selected === true}
+            active={item.selected === true}
+            // LinkItem forwards onSelect to the anchor as a text-selection event that never fires on click.
             onClick={() => {
               if (onSelect) onSelect(item)
               setOpen(!open)
             }}
-            // These extra links in the pickers are not a part of the selection variant
-            // in that they are generally external links, so we want to remove the selection
-            // variant span box in front of it. To date there isn't a possibility to have
-            // an ActionMenu in Primer that allow non-selection variant items with selection
-            // variant items
-            className={(item.extra?.arrow || item.extra?.info) && styles.extrasDisplay}
-            sx={{
-              ':hover': {
-                textDecoration: 'none',
-                textAlign: 'left',
-              },
-            }}
+            // Primer ActionMenu cannot mix selection items with external links, so extras hide the indicator.
+            className={cx(
+              (item.extra?.arrow || item.extra?.info) && styles.extrasDisplay,
+              styles.linkItem,
+            )}
+            role={item.extra?.arrow || item.extra?.info ? 'menuitem' : 'menuitemradio'}
           >
             {renderItem ? renderItem(item) : item.text}
-          </ActionList.Item>
+          </ActionList.LinkItem>
         ),
       )}
     </ActionList>
